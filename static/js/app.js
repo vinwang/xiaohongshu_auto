@@ -149,35 +149,41 @@ document.getElementById('modal-overlay').addEventListener('click', (e) => {
 });
 
 // --- 核心功能: 生成内容 ---
-async function startGenerate(initialTopic = null, initialContentType = null) {
+async function startGenerate(initialTopic = null, initialContentType = null, existingTaskId = null) {
+    console.log('startGenerate called with:', initialTopic, initialContentType, existingTaskId);
     const topicInput = document.getElementById('topic-input');
-    // 如果传入了 initialTopic，先设置到输入框（可选，也可以直接用）
+
+    let topic;
     if (initialTopic) {
-        topicInput.value = initialTopic;
+        topic = initialTopic;
+    } else {
+        topic = topicInput.value.trim();
     }
 
-    const topic = topicInput.value.trim();
-
-    // 如果传入了 initialContentType，先选中对应的 radio
+    let contentType;
     if (initialContentType) {
-        const radio = document.querySelector(`input[name="content-type"][value="${initialContentType}"]`);
-        if (radio) radio.checked = true;
+        contentType = initialContentType;
+    } else {
+        contentType = document.querySelector('input[name="content-type"]:checked').value;
     }
-
-    const contentType = document.querySelector('input[name="content-type"]:checked').value;
 
     if (!topic) {
         showToast('请输入创作主题', 'info');
-        topicInput.focus();
+        if (!initialTopic) topicInput.focus();
         return;
     }
 
     // 创建任务卡片 UI
-    const taskId = 'task-' + Date.now();
+    let taskId = existingTaskId;
+    if (!taskId) {
+        taskId = 'task-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9); // Ensure unique ID
+    }
     createTaskStatusCard(taskId, topic);
 
-    // 清空输入
-    topicInput.value = '';
+    // 仅在手动输入时清空输入框
+    if (!initialTopic) {
+        topicInput.value = '';
+    }
 
     try {
         updateTaskProgress(taskId, 10, '正在启动创作引擎...');
@@ -185,7 +191,11 @@ async function startGenerate(initialTopic = null, initialContentType = null) {
         const response = await fetch(`${API_BASE}/generate-and-publish`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ topic, content_type: contentType })
+            body: JSON.stringify({
+                topic,
+                content_type: contentType,
+                task_id: existingTaskId // 传递现有任务ID（如果是重试）
+            })
         });
 
         // 模拟进度 (真实进度需 WebSocket，此处为模拟体验)
@@ -429,16 +439,27 @@ async function batchGenerate() {
     if (selectedTopics.size === 0) return;
 
     const topics = Array.from(selectedTopics).map(t => t.title);
+    console.log('Batch generating topics:', topics);
     showToast(`开始批量生成 ${topics.length} 个任务`, 'success');
 
     // 切换到创作中心查看进度
     switchView('home');
 
-    // 这里简单处理，实际应该有批量任务的 UI
-    // 暂时只演示第一个
-    const topicInput = document.getElementById('topic-input');
-    topicInput.value = topics[0];
-    startGenerate();
+    // 获取当前选中的内容类型，用于批量任务
+    const currentContentType = document.querySelector('input[name="content-type"]:checked').value;
+
+    // 循环执行生成任务
+    for (const topic of topics) {
+        // 稍微延迟，避免 ID 冲突和 UI 拥挤
+        await new Promise(r => setTimeout(r, 300));
+        startGenerate(topic, currentContentType);
+    }
+
+    // 清空选择状态
+    selectedTopics.clear();
+    document.querySelectorAll('.topic-card.selected').forEach(c => c.classList.remove('selected'));
+    updateBatchActionState();
+    updateSelectAllButtonState();
 }
 
 // --- 配置管理 ---
@@ -575,6 +596,8 @@ function renderHistoryList(tasks) {
     list.innerHTML = Object.keys(groups).map((date, index) => {
         const groupTasks = groups[date];
         const count = groupTasks.length;
+        const failedTasks = groupTasks.filter(t => t.status === 'error');
+        const hasFailed = failedTasks.length > 0;
         // 默认全部折叠
         const isExpanded = '';
 
@@ -585,7 +608,10 @@ function renderHistoryList(tasks) {
                     <span class="history-date">${date}</span>
                     <span class="history-count">${count} 条</span>
                 </div>
-                <span class="history-toggle-icon">▼</span>
+                <div class="history-group-actions">
+                    ${hasFailed ? `<button class="btn-text-sm error-retry-all" onclick='event.stopPropagation(); retryFailedTasksInGroup("${date}")'>重试失败 (${failedTasks.length})</button>` : ''}
+                    <span class="history-toggle-icon">▼</span>
+                </div>
             </div>
             <div class="history-group-content">
                 ${groupTasks.map(task => `
@@ -597,15 +623,58 @@ function renderHistoryList(tasks) {
                                 <span class="history-status ${task.status}">${task.status === 'error' ? '失败' : task.status}</span>
                             </div>
                         </div>
-                        ${task.status === 'error'
+                        <div class="history-actions">
+                            ${task.status === 'error'
                 ? `<button class="btn-text error-retry" onclick='retryTask(${JSON.stringify(task).replace(/'/g, "&#39;")})'>重试</button>`
                 : `<button class="btn-text" onclick='showResultModal(${JSON.stringify(task).replace(/'/g, "&#39;")})'>查看</button>`
             }
+                            <button class="btn-icon-sm delete-btn" onclick='deleteTask("${task.task_id}")' title="删除">🗑️</button>
+                        </div>
                     </div>
                 `).join('')}
             </div>
         </div>
     `}).join('');
+}
+
+async function deleteTask(taskId) {
+    if (!confirm('确定要删除这条记录吗？')) return;
+
+    try {
+        const res = await fetch(`${API_BASE}/history/${taskId}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+            showToast('删除成功', 'success');
+            loadTaskHistory(); // Reload list
+        } else {
+            showToast(data.detail || '删除失败', 'error');
+        }
+    } catch (e) {
+        showToast('删除出错', 'error');
+    }
+}
+
+async function retryFailedTasksInGroup(date) {
+    // Find tasks for this date
+    // Note: allHistoryData is flattened, we need to filter by date string
+    const tasksToRetry = allHistoryData.filter(task => {
+        const taskDate = new Date(task.created_at).toLocaleDateString();
+        return taskDate === date && task.status === 'error';
+    });
+
+    if (tasksToRetry.length === 0) return;
+
+    if (!confirm(`确定要重试该日期的 ${tasksToRetry.length} 个失败任务吗？`)) return;
+
+    closeModal();
+    switchView('home');
+    showToast(`开始批量重试 ${tasksToRetry.length} 个任务`, 'success');
+
+    for (const task of tasksToRetry) {
+        await new Promise(r => setTimeout(r, 300));
+        const contentType = task.content_type || null;
+        startGenerate(task.topic, contentType, task.id); // 传递 task.id
+    }
 }
 
 function retryTask(task) {
@@ -615,7 +684,7 @@ function retryTask(task) {
     // 自动填充并开始生成
     // 如果历史记录里存了 content_type 就用，没有就默认 null (使用当前选中)
     const contentType = task.content_type || null;
-    startGenerate(task.topic, contentType);
+    startGenerate(task.topic, contentType, task.id); // 传递 task.id
 }
 
 function toggleHistoryGroup(header) {

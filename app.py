@@ -5,7 +5,7 @@ import os
 import logging
 import asyncio
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
@@ -90,12 +90,12 @@ cache_manager = CacheManager()
 
 # Pydantic 模型
 class ConfigRequest(BaseModel):
-    llm_api_key: str = None
-    openai_base_url: str = None
-    default_model: str = None
-    jina_api_key: str = None
-    tavily_api_key: str = None
-    xhs_mcp_url: str = None
+    llm_api_key: Optional[str] = None
+    openai_base_url: Optional[str] = None
+    default_model: Optional[str] = None
+    jina_api_key: Optional[str] = None
+    tavily_api_key: Optional[str] = None
+    xhs_mcp_url: Optional[str] = None
 
 
 class TestLoginRequest(BaseModel):
@@ -113,12 +113,13 @@ class ValidateModelRequest(BaseModel):
 class GeneratePublishRequest(BaseModel):
     topic: str
     content_type: str = "general"  # "general" 或 "paper_analysis"
+    task_id: Optional[str] = None  # 用于重试时更新现有任务
 
 
 class TaskHistoryQueryRequest(BaseModel):
-    start_date: str = None
-    end_date: str = None
-    status: str = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    status: Optional[str] = None
     limit: int = 100
 
 
@@ -291,6 +292,7 @@ async def generate_and_publish(request_data: GeneratePublishRequest) -> Dict[str
     try:
         topic = request_data.topic
         content_type = request_data.content_type
+        task_id = request_data.task_id
 
         if not topic:
             raise HTTPException(status_code=400, detail="请输入主题")
@@ -329,7 +331,12 @@ async def generate_and_publish(request_data: GeneratePublishRequest) -> Dict[str
                 'content_type': content_type,
                 **response_data
             }
-            task_id = cache_manager.add_task(task_record)
+            
+            # 如果提供了task_id，则更新现有任务，否则添加新任务
+            if task_id:
+                cache_manager.update_task(task_id, task_record)
+            else:
+                cache_manager.add_task(task_record)
 
             return {
                 'success': True,
@@ -338,14 +345,19 @@ async def generate_and_publish(request_data: GeneratePublishRequest) -> Dict[str
             }
         else:
             # 保存失败记录到缓存
-            cache_manager.add_task({
+            error_record = {
                 'topic': topic,
                 'status': 'error',
                 'progress': 0,
-                'progress': 0,
                 'message': result.get('error', '生成失败'),
                 'content_type': content_type
-            })
+            }
+            
+            # 如果提供了task_id，则更新现有任务，否则添加新任务
+            if task_id:
+                cache_manager.update_task(task_id, error_record)
+            else:
+                cache_manager.add_task(error_record)
 
             raise HTTPException(
                 status_code=500,
@@ -372,9 +384,9 @@ async def get_task_status(task_id: str) -> Dict[str, Any]:
 
 @app.get("/api/history")
 async def get_task_history(
-    start_date: str = None,
-    end_date: str = None,
-    status: str = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    status: Optional[str] = None,
     limit: int = 100
 ) -> Dict[str, Any]:
     """获取任务历史记录"""

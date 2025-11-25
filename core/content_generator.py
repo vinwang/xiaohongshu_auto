@@ -539,6 +539,15 @@ class ContentGenerator:
             return []
 
         except Exception as e:
+            # 检查是否是Tavily API错误
+            error_str = str(e).lower()
+            if "429" in error_str or "quota" in error_str or "unauthorized" in error_str or "403" in error_str:
+                logger.warning(f"检测到Tavily API可能受限: {e}，尝试轮换Key...")
+                if await server_manager.rotate_tavily_key():
+                    logger.info("Key轮换成功，重试获取热点主题...")
+                    # 递归重试一次
+                    return await self.fetch_trending_topics(domain)
+            
             logger.error(f"获取热点主题失败: {e}", exc_info=True)
             return []
 
@@ -737,7 +746,19 @@ class ContentGenerator:
             logger.warning("达到最大迭代次数，未能完成URL内容提取")
             return []
 
+            logger.warning("达到最大迭代次数，未能完成URL内容提取")
+            return []
+
         except Exception as e:
+            # 检查是否是Tavily API错误
+            error_str = str(e).lower()
+            if "429" in error_str or "quota" in error_str or "unauthorized" in error_str or "403" in error_str:
+                logger.warning(f"检测到Tavily API可能受限: {e}，尝试轮换Key...")
+                if await server_manager.rotate_tavily_key():
+                    logger.info("Key轮换成功，重试URL内容提取...")
+                    # 递归重试一次
+                    return await self.fetch_topics_from_url(url)
+
             logger.error(f"从URL提取主题失败: {e}", exc_info=True)
             return []
 
@@ -907,6 +928,29 @@ class ContentGenerator:
                                                 tool_result = await server.execute_tool(tool_name, arguments)
                                                 break
                                             except Exception as e:
+                                                # 检查是否是Tavily API错误
+                                                error_str = str(e).lower()
+                                                if "429" in error_str or "quota" in error_str or "unauthorized" in error_str or "403" in error_str:
+                                                    logger.warning(f"检测到Tavily API可能受限: {e}，尝试轮换Key...")
+                                                    if await server_manager.rotate_tavily_key():
+                                                        logger.info("Key轮换成功，重试执行工具...")
+                                                        # 重新获取服务器列表（因为重启了）
+                                                        self.servers = server_manager.get_servers()
+                                                        # 找到新服务器实例并重试
+                                                        retry_success = False
+                                                        for new_server in self.servers:
+                                                            new_tools = await new_server.list_tools()
+                                                            if any(t.name == tool_name for t in new_tools):
+                                                                try:
+                                                                    tool_result = await new_server.execute_tool(tool_name, arguments)
+                                                                    retry_success = True
+                                                                    break
+                                                                except Exception as retry_e:
+                                                                    logger.error(f"重试执行工具失败: {retry_e}")
+                                                        
+                                                        if retry_success:
+                                                            break
+
                                                 logger.error(f"执行工具 {tool_name} 出错: {e}")
                                                 tool_result = f"Error: {str(e)}"
 
@@ -922,6 +966,29 @@ class ContentGenerator:
                                             tool_result = await server.execute_tool(tool_name, arguments)
                                             break
                                         except Exception as e:
+                                            # 检查是否是Tavily API错误
+                                            error_str = str(e).lower()
+                                            if "429" in error_str or "quota" in error_str or "unauthorized" in error_str or "403" in error_str:
+                                                logger.warning(f"检测到Tavily API可能受限: {e}，尝试轮换Key...")
+                                                if await server_manager.rotate_tavily_key():
+                                                    logger.info("Key轮换成功，重试执行工具...")
+                                                    # 重新获取服务器列表（因为重启了）
+                                                    self.servers = server_manager.get_servers()
+                                                    # 找到新服务器实例并重试
+                                                    retry_success = False
+                                                    for new_server in self.servers:
+                                                        new_tools = await new_server.list_tools()
+                                                        if any(t.name == tool_name for t in new_tools):
+                                                            try:
+                                                                tool_result = await new_server.execute_tool(tool_name, arguments)
+                                                                retry_success = True
+                                                                break
+                                                            except Exception as retry_e:
+                                                                logger.error(f"重试执行工具失败: {retry_e}")
+                                                    
+                                                    if retry_success:
+                                                        break
+
                                             logger.error(f"执行工具 {tool_name} 出错: {e}")
                                             tool_result = f"Error: {str(e)}"
 

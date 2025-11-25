@@ -148,6 +148,37 @@ class ServerManager:
         ServerManager._initialized = False
         logger.info("全局 MCP 服务器清理完成")
 
+    async def rotate_tavily_key(self) -> bool:
+        """轮换Tavily Key并重启服务器
+        
+        Returns:
+            是否成功轮换并重启
+        """
+        try:
+            from config.config_manager import ConfigManager
+            config_manager = ConfigManager()
+            
+            # 轮换Key
+            new_key = config_manager.rotate_tavily_key()
+            if not new_key:
+                logger.warning("无法轮换Tavily Key: 没有可用的新Key")
+                return False
+                
+            logger.info(f"Tavily Key已更新，正在重启服务器...")
+            
+            # 获取最新配置
+            new_config = config_manager.load_config()
+            
+            # 重启服务器
+            await self.cleanup()
+            await self.initialize(new_config)
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"轮换Tavily Key并重启服务器失败: {e}")
+            return False
+
     def is_initialized(self) -> bool:
         """检查服务器是否已初始化
 

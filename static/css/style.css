@@ -904,6 +904,12 @@ body {
     background: rgba(255, 255, 255, 0.1);
 }
 
+.history-group-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
 .history-group-info {
     display: flex;
     align-items: center;

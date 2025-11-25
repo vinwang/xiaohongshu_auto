@@ -48,6 +48,14 @@ class ConfigManager:
                 with open(self.config_file, 'r', encoding='utf-8') as f:
                     config = json.load(f)
 
+                # 处理多Tavily Key的情况，供前端显示
+                if 'tavily_api_keys' in config and isinstance(config['tavily_api_keys'], list):
+                    # 将列表转换为逗号分隔的字符串显示在前端
+                    config['tavily_api_key'] = ','.join(config['tavily_api_keys'])
+                elif 'tavily_api_key' in config and 'tavily_api_keys' not in config:
+                    # 如果只有单key且没有列表，初始化列表
+                    config['tavily_api_keys'] = [config['tavily_api_key']]
+
                 # 如果需要脱敏(创建副本,不修改原始数据)
                 if mask_sensitive:
                     import copy
@@ -76,6 +84,21 @@ class ConfigManager:
         try:
             # 如果是部分更新,先加载现有配置再合并
             existing_config = self.load_config()
+            
+            # 处理Tavily Key列表
+            if 'tavily_api_key' in config:
+                tavily_keys_str = config['tavily_api_key']
+                if tavily_keys_str:
+                    # 分割并去除空白
+                    keys = [k.strip() for k in tavily_keys_str.split(',') if k.strip()]
+                    config['tavily_api_keys'] = keys
+                    # 使用第一个key作为当前活动key
+                    if keys:
+                        config['tavily_api_key'] = keys[0]
+                else:
+                    config['tavily_api_keys'] = []
+                    config['tavily_api_key'] = ""
+
             merged_config = {**existing_config, **config}
 
             # 保存到JSON配置文件
@@ -92,6 +115,44 @@ class ConfigManager:
             logger.error(f"保存配置失败: {e}")
             return False
 
+    def rotate_tavily_key(self) -> str:
+        """轮换Tavily API Key
+        
+        Returns:
+            新的API Key，如果没有可用key则返回空字符串
+        """
+        try:
+            config = self.load_config()
+            keys = config.get('tavily_api_keys', [])
+            current_key = config.get('tavily_api_key', '')
+            
+            if not keys:
+                logger.warning("没有可用的Tavily API Key")
+                return ""
+                
+            # 找到当前key的索引
+            try:
+                current_index = keys.index(current_key)
+                next_index = (current_index + 1) % len(keys)
+            except ValueError:
+                # 如果当前key不在列表中，从第一个开始
+                next_index = 0
+                
+            new_key = keys[next_index]
+            
+            # 更新当前使用的key
+            config['tavily_api_key'] = new_key
+            
+            # 保存更新后的配置
+            self.save_config(config)
+            
+            logger.info(f"Tavily API Key 已轮换: {self._mask_sensitive_value(current_key)} -> {self._mask_sensitive_value(new_key)}")
+            return new_key
+            
+        except Exception as e:
+            logger.error(f"轮换Tavily Key失败: {e}")
+            return ""
+
     def _mask_sensitive_value(self, value: str) -> str:
         """脱敏敏感信息
 
@@ -103,6 +164,13 @@ class ConfigManager:
         """
         if not value:
             return ''
+        
+        # 检查是否包含逗号（多个key的情况）
+        if ',' in value:
+            keys = value.split(',')
+            masked_keys = [self._mask_sensitive_value(k.strip()) for k in keys]
+            return ','.join(masked_keys)
+            
         # 只显示前4个和后4个字符
         if len(value) <= 8:
             return '*' * len(value)
