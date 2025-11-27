@@ -16,6 +16,11 @@ from core.server_manager import server_manager
 logger = logging.getLogger(__name__)
 
 
+class TavilyQuotaExceeded(Exception):
+    """Tavily API配额已用尽异常"""
+    pass
+
+
 class ContentGenerator:
     """内容生成器 - 负责生成小红书内容并发布"""
 
@@ -81,12 +86,12 @@ class ContentGenerator:
 
         return temp_path, True
 
-    async def validate_image_urls(self, image_urls: List[str], timeout: float = 10.0) -> List[str]:
+    async def validate_image_urls(self, image_urls: List[str], timeout: float = 20.0) -> List[str]:
         """验证图片 URL 的有效性,返回可访问的图片 URL 列表
 
         Args:
             image_urls: 待验证的图片 URL 列表
-            timeout: 每个 URL 的超时时间(秒)
+            timeout: 每个 URL 的超时时间(秒，默认20s)
 
         Returns:
             List[str]: 有效的图片 URL 列表
@@ -97,44 +102,111 @@ class ContentGenerator:
         valid_urls = []
 
         async def check_url(url: str) -> Optional[str]:
-            """检查单个 URL 是否可访问且为图片"""
-            try:
-                # 跳过明显无效的 URL
-                if not url or not url.startswith(('http://', 'https://')):
-                    logger.warning(f"跳过无效URL格式: {url}")
-                    return None
+            """检查单个 URL 是否可访问且为图片，支持重试和多种验证方法"""
+            # 跳过明显无效的 URL
+            if not url or not url.startswith(('http://', 'https://')):
+                logger.warning(f"跳过无效URL格式: {url}")
+                return None
 
-                # 检查是否为占位符
-                if any(placeholder in url.lower() for placeholder in ['example.com', 'placeholder', 'image1.jpg', 'image2.jpg', 'image3.jpg', 'test.jpg']):
-                    logger.warning(f"跳过占位符URL: {url}")
-                    return None
+            # 检查是否为占位符
+            if any(placeholder in url.lower() for placeholder in ['example.com', 'placeholder', 'image1.jpg', 'image2.jpg', 'image3.jpg', 'test.jpg']):
+                logger.warning(f"跳过占位符URL: {url}")
+                return None
 
-                async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
-                    # 使用 HEAD 请求减少流量
-                    response = await client.head(url, headers={
-                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36'
-                    })
+            # 重试机制：最多尝试2次
+            for attempt in range(2):
+                try:
+                    # 判断是否需要禁用SSL验证（针对已知有证书问题的CDN）
+                    verify_ssl = True
+                    # 已知证书问题的域名列表
+                    problematic_domains = ['9to5google.com', 'techkv.com', 'cdn.example.com']
+                    if any(domain in url for domain in problematic_domains):
+                        verify_ssl = False
+                        logger.info(f"对已知证书问题域名禁用SSL验证: {url}")
 
-                    # 检查状态码
-                    if response.status_code != 200:
-                        logger.warning(f"图片URL返回非200状态码 {response.status_code}: {url}")
+                    # 更完善的User-Agent，模拟真实浏览器
+                    headers = {
+                        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                        'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+                        'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+                        'Referer': 'https://www.google.com/'
+                    }
+
+                    async with httpx.AsyncClient(
+                        timeout=timeout,
+                        follow_redirects=True,
+                        verify=verify_ssl
+                    ) as client:
+                        # 首先尝试 HEAD 请求
+                        try:
+                            response = await client.head(url, headers=headers)
+
+                            # 检查状态码
+                            if response.status_code == 200:
+                                # 检查 Content-Type
+                                content_type = response.headers.get('content-type', '').lower()
+                                if content_type.startswith('image/'):
+                                    logger.info(f"✓ 图片URL有效(HEAD): {url}")
+                                    return url
+                                else:
+                                    logger.warning(f"URL不是图片类型(HEAD) (Content-Type: {content_type}): {url}")
+
+                            # 如果HEAD失败，尝试GET请求（只获取少量字节）
+                            elif response.status_code in [403, 405, 404]:
+                                logger.info(f"HEAD请求失败(状态码{response.status_code})，尝试GET请求: {url}")
+                                raise httpx.HTTPStatusError(f"HEAD failed with {response.status_code}", request=None, response=response)
+                            else:
+                                logger.warning(f"图片URL返回非200状态码 {response.status_code}: {url}")
+
+                        except (httpx.HTTPStatusError, httpx.RequestError):
+                            # HEAD失败，尝试GET请求（只读取前1KB来验证）
+                            logger.info(f"尝试GET请求验证(前1KB): {url}")
+                            headers['Range'] = 'bytes=0-1023'  # 只请求前1KB
+
+                            response = await client.get(url, headers=headers)
+
+                            if response.status_code in [200, 206]:  # 206 = Partial Content
+                                # 检查 Content-Type
+                                content_type = response.headers.get('content-type', '').lower()
+                                if content_type.startswith('image/'):
+                                    logger.info(f"✓ 图片URL有效(GET): {url}")
+                                    return url
+                                else:
+                                    # 即使Content-Type不对，如果URL看起来像图片，也接受
+                                    image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg', '.ico']
+                                    if any(url.lower().endswith(ext) or ext in url.lower() for ext in image_extensions):
+                                        logger.info(f"✓ 图片URL有效(按扩展名): {url}")
+                                        return url
+                                    logger.warning(f"URL不是图片类型(GET) (Content-Type: {content_type}): {url}")
+                            else:
+                                logger.warning(f"图片URL返回非200/206状态码 {response.status_code}: {url}")
+
+                    # 如果到这里都没返回，说明验证失败，进入重试
+                    if attempt < 1:  # 还有重试机会
+                        await asyncio.sleep(1 * (attempt + 1))  # 指数退避: 1s, 2s
+                        logger.info(f"重试验证URL (第{attempt + 2}次): {url}")
+                        continue
+                    else:
                         return None
 
-                    # 检查 Content-Type
-                    content_type = response.headers.get('content-type', '').lower()
-                    if not content_type.startswith('image/'):
-                        logger.warning(f"URL不是图片类型 (Content-Type: {content_type}): {url}")
+                except httpx.TimeoutException:
+                    if attempt < 1:
+                        logger.warning(f"图片URL访问超时(第{attempt + 1}次)，准备重试: {url}")
+                        await asyncio.sleep(1 * (attempt + 1))
+                        continue
+                    else:
+                        logger.warning(f"图片URL访问超时(已重试): {url}")
+                        return None
+                except Exception as e:
+                    if attempt < 1:
+                        logger.warning(f"图片URL验证失败(第{attempt + 1}次) {url}: {e}，准备重试")
+                        await asyncio.sleep(1 * (attempt + 1))
+                        continue
+                    else:
+                        logger.warning(f"图片URL验证失败(已重试) {url}: {e}")
                         return None
 
-                    logger.info(f"✓ 图片URL有效: {url}")
-                    return url
-
-            except httpx.TimeoutException:
-                logger.warning(f"图片URL访问超时: {url}")
-                return None
-            except Exception as e:
-                logger.warning(f"图片URL验证失败 {url}: {e}")
-                return None
+            return None
 
         # 并发检查所有 URL
         tasks = [check_url(url) for url in image_urls]
@@ -216,10 +288,30 @@ class ContentGenerator:
     async def initialize_servers(self):
         """初始化MCP服务器连接"""
         try:
-            # 从servers_config.json读取服务器配置
-            config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'servers_config.json')
-            with open(config_path, 'r', encoding='utf-8') as f:
-                server_config = json.load(f)
+            # 动态构建服务器配置（使用 self.config，不从文件读取）
+            server_config = {
+                "mcpServers": {
+                    "jina-mcp-tools": {
+                        "args": ["jina-mcp-tools"],
+                        "command": "npx",
+                        "env": {
+                            "JINA_API_KEY": self.config.get('jina_api_key', '')
+                        }
+                    },
+                    "tavily-remote": {
+                        "command": "npx",
+                        "args": [
+                            "-y",
+                            "mcp-remote",
+                            f"https://mcp.tavily.com/mcp/?tavilyApiKey={self.config.get('tavily_api_key', '')}"
+                        ]
+                    },
+                    "xhs": {
+                        "type": "streamable_http",
+                        "url": self.config.get('xhs_mcp_url', 'http://localhost:18060/mcp')
+                    }
+                }
+            }
 
             # 创建服务器实例
             self.servers = [
@@ -928,29 +1020,6 @@ class ContentGenerator:
                                                 tool_result = await server.execute_tool(tool_name, arguments)
                                                 break
                                             except Exception as e:
-                                                # 检查是否是Tavily API错误
-                                                error_str = str(e).lower()
-                                                if "429" in error_str or "quota" in error_str or "unauthorized" in error_str or "403" in error_str:
-                                                    logger.warning(f"检测到Tavily API可能受限: {e}，尝试轮换Key...")
-                                                    if await server_manager.rotate_tavily_key():
-                                                        logger.info("Key轮换成功，重试执行工具...")
-                                                        # 重新获取服务器列表（因为重启了）
-                                                        self.servers = server_manager.get_servers()
-                                                        # 找到新服务器实例并重试
-                                                        retry_success = False
-                                                        for new_server in self.servers:
-                                                            new_tools = await new_server.list_tools()
-                                                            if any(t.name == tool_name for t in new_tools):
-                                                                try:
-                                                                    tool_result = await new_server.execute_tool(tool_name, arguments)
-                                                                    retry_success = True
-                                                                    break
-                                                                except Exception as retry_e:
-                                                                    logger.error(f"重试执行工具失败: {retry_e}")
-                                                        
-                                                        if retry_success:
-                                                            break
-
                                                 logger.error(f"执行工具 {tool_name} 出错: {e}")
                                                 tool_result = f"Error: {str(e)}"
 
@@ -966,34 +1035,19 @@ class ContentGenerator:
                                             tool_result = await server.execute_tool(tool_name, arguments)
                                             break
                                         except Exception as e:
-                                            # 检查是否是Tavily API错误
-                                            error_str = str(e).lower()
-                                            if "429" in error_str or "quota" in error_str or "unauthorized" in error_str or "403" in error_str:
-                                                logger.warning(f"检测到Tavily API可能受限: {e}，尝试轮换Key...")
-                                                if await server_manager.rotate_tavily_key():
-                                                    logger.info("Key轮换成功，重试执行工具...")
-                                                    # 重新获取服务器列表（因为重启了）
-                                                    self.servers = server_manager.get_servers()
-                                                    # 找到新服务器实例并重试
-                                                    retry_success = False
-                                                    for new_server in self.servers:
-                                                        new_tools = await new_server.list_tools()
-                                                        if any(t.name == tool_name for t in new_tools):
-                                                            try:
-                                                                tool_result = await new_server.execute_tool(tool_name, arguments)
-                                                                retry_success = True
-                                                                break
-                                                            except Exception as retry_e:
-                                                                logger.error(f"重试执行工具失败: {retry_e}")
-                                                    
-                                                    if retry_success:
-                                                        break
-
                                             logger.error(f"执行工具 {tool_name} 出错: {e}")
                                             tool_result = f"Error: {str(e)}"
 
                                 if tool_result is None:
                                     tool_result = f"未找到工具 {tool_name}"
+
+                            # 检查是否是 Tavily 搜索工具的错误返回
+                            if tool_result is not None and "tavily" in tool_name.lower():
+                                result_str = str(tool_result).lower()
+                                if ("this request exceeds your plan\'s set usage limit. please upgrade your plan or contact support@tavily.com" in result_str and "432" in result_str):
+                                    logger.warning(f"检测到Tavily API受限: {tool_result}")
+                                    # 抛出特殊异常，让外层处理轮换和重试
+                                    raise TavilyQuotaExceeded("Tavily API配额已用尽，需要轮换Key")
 
                             # 检测是否是发布工具，并且是否成功
                             if tool_name == "publish_content":
@@ -1063,6 +1117,9 @@ class ContentGenerator:
 
             return step_result
 
+        except TavilyQuotaExceeded:
+            # 不捕获此异常，让它继续向上传播到 generate_and_publish 进行轮换重试
+            raise
         except Exception as e:
             logger.error(f"执行步骤 {step['id']} 出错: {e}")
             return {
@@ -1109,17 +1166,48 @@ class ContentGenerator:
             # 执行每个步骤
             results = []
             for step in research_plan:
-                step_result = await self.execute_step(step, available_tools, results, topic)
-                results.append(step_result)
+                max_retries = 2  # 最多重试2次（轮换2次Key）
+                retry_count = 0
 
-                if not step_result.get('success'):
-                    logger.error(f"步骤 {step['id']} 执行失败")
-                    return {
-                        'success': False,
-                        'error': f"步骤 {step['id']} 执行失败: {step_result.get('error', '未知错误')}"
-                    }
+                while retry_count <= max_retries:
+                    try:
+                        step_result = await self.execute_step(step, available_tools, results, topic)
+                        results.append(step_result)
 
-                logger.info(f"步骤 {step['id']} 执行成功")
+                        if not step_result.get('success'):
+                            logger.error(f"步骤 {step['id']} 执行失败")
+                            return {
+                                'success': False,
+                                'error': f"步骤 {step['id']} 执行失败: {step_result.get('error', '未知错误')}"
+                            }
+
+                        logger.info(f"步骤 {step['id']} 执行成功")
+                        break  # 成功则跳出重试循环
+
+                    except TavilyQuotaExceeded as e:
+                        retry_count += 1
+                        if retry_count <= max_retries:
+                            logger.warning(f"步骤 {step['id']} Tavily配额用尽（第{retry_count}次），开始轮换Key并重试...")
+
+                            # 轮换Key + 重启服务器
+                            if await server_manager.rotate_tavily_key():
+                                logger.info(f"✅ Key轮换成功，重新执行步骤 {step['id']}...")
+                                # 更新本地引用
+                                self.servers = server_manager.get_servers()
+                                self.llm_client = server_manager.get_llm_client()
+                                available_tools = await server_manager.get_available_tools()
+                            else:
+                                logger.error("❌ Key轮换失败，没有更多可用的Key")
+                                return {
+                                    'success': False,
+                                    'error': f"步骤 {step['id']} 执行失败: Tavily API配额已用尽且无法轮换Key"
+                                }
+                        else:
+                            logger.error(f"❌ 步骤 {step['id']} 已重试{max_retries}次，全部失败")
+                            return {
+                                'success': False,
+                                'error': f"步骤 {step['id']} 执行失败: 已轮换所有Tavily Key但仍然失败"
+                            }
 
             # 检查发布步骤（step3）是否成功
             step3_result = next((r for r in results if r['step_id'] == 'step3'), None)

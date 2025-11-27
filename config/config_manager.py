@@ -31,14 +31,14 @@ class ConfigManager:
         self.config_dir.mkdir(exist_ok=True)
 
         self.config_file = self.config_dir / 'app_config.json'
-        self.servers_config_file = self.config_dir / 'servers_config.json'
         self.env_file = self.config_dir / '.env'
 
-    def load_config(self, mask_sensitive: bool = False) -> Dict[str, Any]:
+    def load_config(self, mask_sensitive: bool = False, for_display: bool = True) -> Dict[str, Any]:
         """加载应用配置
 
         Args:
             mask_sensitive: 是否脱敏敏感信息(仅用于前端显示)
+            for_display: 是否为前端显示转换格式（将 tavily_api_keys 列表转为逗号分隔字符串）
 
         Returns:
             配置字典
@@ -48,13 +48,15 @@ class ConfigManager:
                 with open(self.config_file, 'r', encoding='utf-8') as f:
                     config = json.load(f)
 
-                # 处理多Tavily Key的情况，供前端显示
-                if 'tavily_api_keys' in config and isinstance(config['tavily_api_keys'], list):
-                    # 将列表转换为逗号分隔的字符串显示在前端
-                    config['tavily_api_key'] = ','.join(config['tavily_api_keys'])
-                elif 'tavily_api_key' in config and 'tavily_api_keys' not in config:
+                # 处理多Tavily Key的情况
+                if 'tavily_api_key' in config and 'tavily_api_keys' not in config:
                     # 如果只有单key且没有列表，初始化列表
                     config['tavily_api_keys'] = [config['tavily_api_key']]
+
+                # 只有在为前端显示时才转换为逗号分隔字符串
+                if for_display and 'tavily_api_keys' in config and isinstance(config['tavily_api_keys'], list):
+                    # 将列表转换为逗号分隔的字符串显示在前端
+                    config['tavily_api_key'] = ','.join(config['tavily_api_keys'])
 
                 # 如果需要脱敏(创建副本,不修改原始数据)
                 if mask_sensitive:
@@ -82,11 +84,13 @@ class ConfigManager:
             是否保存成功
         """
         try:
-            # 如果是部分更新,先加载现有配置再合并
-            existing_config = self.load_config()
+            # 如果是部分更新,先加载现有配置再合并（不做显示转换）
+            existing_config = self.load_config(for_display=False)
             
             # 处理Tavily Key列表
-            if 'tavily_api_key' in config:
+            # 只有当传入的是逗号分隔的字符串时才进行分割和覆盖（来自Web UI的初始配置）
+            # 如果已经存在 tavily_api_keys 列表，说明是轮换操作，不应该覆盖
+            if 'tavily_api_key' in config and 'tavily_api_keys' not in existing_config:
                 tavily_keys_str = config['tavily_api_key']
                 if tavily_keys_str:
                     # 分割并去除空白
@@ -98,15 +102,19 @@ class ConfigManager:
                 else:
                     config['tavily_api_keys'] = []
                     config['tavily_api_key'] = ""
+            elif 'tavily_api_key' in config and ',' in config['tavily_api_key']:
+                # 如果当前 tavily_api_key 包含逗号，说明是从 Web UI 更新配置
+                tavily_keys_str = config['tavily_api_key']
+                keys = [k.strip() for k in tavily_keys_str.split(',') if k.strip()]
+                config['tavily_api_keys'] = keys
+                if keys:
+                    config['tavily_api_key'] = keys[0]
 
             merged_config = {**existing_config, **config}
 
             # 保存到JSON配置文件
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(merged_config, f, indent=2, ensure_ascii=False)
-
-            # 更新servers_config.json
-            self._update_servers_config(merged_config)
 
             logger.info("配置保存成功")
             return True
@@ -117,38 +125,48 @@ class ConfigManager:
 
     def rotate_tavily_key(self) -> str:
         """轮换Tavily API Key
-        
+
         Returns:
             新的API Key，如果没有可用key则返回空字符串
         """
         try:
-            config = self.load_config()
+            # 直接从文件读取原始配置，不经过 load_config() 的转换
+            # 因为 load_config() 会把 tavily_api_key 转换成逗号分隔的字符串
+            with open(self.config_file, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+
             keys = config.get('tavily_api_keys', [])
             current_key = config.get('tavily_api_key', '')
-            
+
             if not keys:
                 logger.warning("没有可用的Tavily API Key")
                 return ""
-                
+
+            if len(keys) == 1:
+                logger.info("只有一个Tavily Key，无需轮换")
+                return keys[0]
+
             # 找到当前key的索引
             try:
                 current_index = keys.index(current_key)
                 next_index = (current_index + 1) % len(keys)
             except ValueError:
                 # 如果当前key不在列表中，从第一个开始
+                logger.warning(f"当前key不在列表中，从第一个key开始")
                 next_index = 0
-                
+
             new_key = keys[next_index]
-            
-            # 更新当前使用的key
-            config['tavily_api_key'] = new_key
-            
+
+            # 只更新 tavily_api_key，不传递整个 config
+            # 避免触发 save_config 中的 Tavily Key 处理逻辑
+            update_dict = {'tavily_api_key': new_key}
+
             # 保存更新后的配置
-            self.save_config(config)
-            
+            self.save_config(update_dict)
+
             logger.info(f"Tavily API Key 已轮换: {self._mask_sensitive_value(current_key)} -> {self._mask_sensitive_value(new_key)}")
             return new_key
-            
+
         except Exception as e:
             logger.error(f"轮换Tavily Key失败: {e}")
             return ""
@@ -175,47 +193,6 @@ class ConfigManager:
         if len(value) <= 8:
             return '*' * len(value)
         return f"{value[:4]}{'*' * (len(value) - 8)}{value[-4:]}"
-
-    def _update_servers_config(self, config: Dict[str, Any]):
-        """更新MCP服务器配置文件
-
-        Args:
-            config: 配置字典
-        """
-        servers_config = {
-            "mcpServers": {
-                "jina-mcp-tools": {
-                    "args": ["jina-mcp-tools"],
-                    "command": "npx",
-                    "env": {
-                        "JINA_API_KEY": config.get('jina_api_key', '')
-                    }
-                },
-                "tavily-remote": {
-                    "command": "npx",
-                    "args": [
-                        "-y",
-                        "mcp-remote",
-                        f"https://mcp.tavily.com/mcp/?tavilyApiKey={config.get('tavily_api_key', '')}"
-                    ]
-                },
-                "xhs": {
-                    "type": "streamable_http",
-                    "url": config.get('xhs_mcp_url', 'http://localhost:18060/mcp')
-                }
-            }
-        }
-
-        with open(self.servers_config_file, 'w', encoding='utf-8') as f:
-            json.dump(servers_config, f, indent=2, ensure_ascii=False)
-
-    def get_servers_config_path(self) -> str:
-        """获取服务器配置文件路径
-
-        Returns:
-            配置文件绝对路径
-        """
-        return str(self.servers_config_file.absolute())
 
     def validate_config(self, config: Dict[str, Any]) -> tuple[bool, str]:
         """验证配置的完整性

@@ -204,7 +204,14 @@ class Server:
                 self.session = None
                 self.stdio_context = None
             except Exception as e:
-                logging.error(f"Error during cleanup of server {self.name}: {e}")
+                # 检查是否是 AsyncExitStack 的上下文错误（这是无害的）
+                error_msg = str(e).lower()
+                if "cancel scope" in error_msg or "different task" in error_msg:
+                    # 这些错误是无害的，降级为 debug 日志
+                    logging.debug(f"Cleanup context info for server {self.name}: {e}")
+                else:
+                    # 其他真正的错误才打印 error
+                    logging.error(f"Error during cleanup of server {self.name}: {e}")
 
 
 class Tool:
@@ -394,11 +401,6 @@ class LLMClient:
                         })()
                     })()]
             return ErrorResponse(f"I encountered an error while generating the final response: {error_message}. Please try again.")
-
-class ChatSession:
-    """Orchestrates the interaction between user, LLM, and tools."""
-
-    def __init__(self, servers: list[Server], llm_client: LLMClient) -> None:
         self.servers: list[Server] = servers
         self.llm_client: LLMClient = llm_client
 

@@ -2,6 +2,7 @@
 全局 MCP 服务器管理器
 负责在应用启动时初始化所有 MCP 服务器,并在整个应用生命周期内复用这些连接
 """
+import asyncio
 import json
 import logging
 import os
@@ -28,6 +29,7 @@ class ServerManager:
             self.servers: List[Server] = []
             self.llm_client: Optional[LLMClient] = None
             self.config: Optional[Dict[str, Any]] = None
+            self._is_cleaning = False  # 防止重复清理的标志
             ServerManager._initialized = True
 
     async def initialize(self, config: Dict[str, Any]):
@@ -42,20 +44,30 @@ class ServerManager:
             # 保存配置
             self.config = config
 
-            # 从 servers_config.json 读取服务器配置
-            config_path = os.path.join(
-                os.path.dirname(__file__),
-                '..',
-                'config',
-                'servers_config.json'
-            )
-
-            if not os.path.exists(config_path):
-                logger.warning(f"服务器配置文件不存在: {config_path}")
-                return
-
-            with open(config_path, 'r', encoding='utf-8') as f:
-                server_config = json.load(f)
+            # 动态构建服务器配置（使用传入的 config 参数，而不是从文件读取）
+            server_config = {
+                "mcpServers": {
+                    "jina-mcp-tools": {
+                        "args": ["jina-mcp-tools"],
+                        "command": "npx",
+                        "env": {
+                            "JINA_API_KEY": config.get('jina_api_key', '')
+                        }
+                    },
+                    "tavily-remote": {
+                        "command": "npx",
+                        "args": [
+                            "-y",
+                            "mcp-remote",
+                            f"https://mcp.tavily.com/mcp/?tavilyApiKey={config.get('tavily_api_key', '')}"
+                        ]
+                    },
+                    "xhs": {
+                        "type": "streamable_http",
+                        "url": config.get('xhs_mcp_url', 'http://localhost:18060/mcp')
+                    }
+                }
+            }
 
             # 创建服务器实例
             self.servers = [
@@ -134,47 +146,70 @@ class ServerManager:
 
     async def cleanup(self):
         """清理所有服务器连接"""
-        logger.info("开始清理全局 MCP 服务器...")
+        # 防止重复清理
+        if self._is_cleaning:
+            logger.warning("清理操作正在进行中，跳过重复调用")
+            return
 
-        for server in reversed(self.servers):
-            try:
-                await server.cleanup()
-                logger.info(f"清理服务器: {server.name}")
-            except Exception as e:
-                logger.warning(f"清理服务器 {server.name} 时出错: {e}")
+        self._is_cleaning = True
 
-        self.servers = []
-        self.llm_client = None
-        ServerManager._initialized = False
-        logger.info("全局 MCP 服务器清理完成")
+        try:
+            logger.info("开始清理全局 MCP 服务器...")
+
+            for server in reversed(self.servers):
+                try:
+                    await server.cleanup()
+                    logger.info(f"清理服务器: {server.name}")
+                except asyncio.CancelledError:
+                    # 被取消时静默处理，因为这是预期行为
+                    logger.debug(f"清理服务器 {server.name} 被取消（预期行为）")
+                except Exception as e:
+                    # 检查是否是 AsyncExitStack 的上下文错误（这是无害的）
+                    error_msg = str(e).lower()
+                    if "cancel scope" in error_msg or "different task" in error_msg:
+                        # 这些错误是无害的，降级为 debug 日志
+                        logger.debug(f"清理服务器 {server.name} 时的上下文切换提示: {e}")
+                    else:
+                        # 其他真正的错误才打印 warning
+                        logger.warning(f"清理服务器 {server.name} 时出错: {e}")
+
+            # 无论如何都要清空引用，确保可以重新初始化
+            self.servers = []
+            self.llm_client = None
+            ServerManager._initialized = False
+            logger.info("全局 MCP 服务器清理完成")
+
+        finally:
+            # 确保清理标志被重置，即使出现异常
+            self._is_cleaning = False
 
     async def rotate_tavily_key(self) -> bool:
         """轮换Tavily Key并重启服务器
-        
+
         Returns:
             是否成功轮换并重启
         """
         try:
             from config.config_manager import ConfigManager
             config_manager = ConfigManager()
-            
+
             # 轮换Key
             new_key = config_manager.rotate_tavily_key()
             if not new_key:
                 logger.warning("无法轮换Tavily Key: 没有可用的新Key")
                 return False
-                
+
             logger.info(f"Tavily Key已更新，正在重启服务器...")
-            
-            # 获取最新配置
-            new_config = config_manager.load_config()
-            
+
+            # 获取最新配置（不做显示转换，保持原始格式）
+            new_config = config_manager.load_config(for_display=False)
+
             # 重启服务器
             await self.cleanup()
             await self.initialize(new_config)
-            
+
             return True
-            
+
         except Exception as e:
             logger.error(f"轮换Tavily Key并重启服务器失败: {e}")
             return False

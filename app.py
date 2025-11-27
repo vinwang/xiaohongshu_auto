@@ -41,7 +41,7 @@ async def lifespan(app: FastAPI):
 
     # 尝试初始化全局 MCP 服务器(如果配置存在)
     try:
-        config = config_manager.load_config()
+        config = config_manager.load_config(for_display=False)
         if config.get('llm_api_key') and config.get('openai_base_url'):
             logger.info("检测到配置文件,开始初始化全局 MCP 服务器...")
             await server_manager.initialize(config)
