@@ -201,23 +201,44 @@ async function startGenerate(initialTopic = null, initialContentType = null, exi
         // 模拟进度 (真实进度需 WebSocket，此处为模拟体验)
         simulateProgress(taskId);
 
-        const data = await response.json();
+        // 处理响应
+        let responseData;
+        try {
+            responseData = await response.json();
+        } catch (jsonError) {
+            // 如果响应不是JSON格式，直接获取文本内容
+            const textData = await response.text();
+            throw new Error(textData || '服务器返回了无效的JSON响应');
+        }
 
-        if (data.success) {
+        if (response.ok && responseData.success) {
             updateTaskProgress(taskId, 100, '发布成功！');
             showToast('内容创作完成', 'success');
 
             // 延迟展示结果
             setTimeout(() => {
-                showResultModal(data.data);
+                showResultModal(responseData.data);
             }, 1000);
         } else {
-            updateTaskStatus(taskId, 'error', data.error || '生成失败');
-            showToast(data.error || '生成失败', 'error');
+            // 提取详细的错误信息
+            let errorMessage = responseData.error || responseData.detail || '生成失败';
+            
+            // 如果是字符串，直接使用
+            if (typeof errorMessage === 'string') {
+                updateTaskStatus(taskId, 'error', errorMessage);
+                showToast(errorMessage, 'error');
+            } else if (typeof errorMessage === 'object') {
+                // 如果是对象，转换为字符串
+                const errorStr = JSON.stringify(errorMessage, null, 2);
+                updateTaskStatus(taskId, 'error', errorStr);
+                showToast('生成失败，请查看详细错误信息', 'error');
+            }
         }
     } catch (error) {
-        updateTaskStatus(taskId, 'error', error.message);
-        showToast(`请求失败: ${error.message}`, 'error');
+        // 显示完整的错误信息，包括发布失败的详细原因
+        const fullErrorMessage = error.message || '请求失败';
+        updateTaskStatus(taskId, 'error', fullErrorMessage);
+        showToast(`请求失败: ${fullErrorMessage}`, 'error');
     }
 }
 
@@ -227,12 +248,26 @@ function createTaskStatusCard(taskId, topic) {
         <div id="${taskId}" class="status-card">
             <div class="status-header">
                 <span class="status-topic">${topic}</span>
-                <span class="status-badge running">进行中</span>
+                <div class="status-actions">
+                    <span class="status-badge running">进行中</span>
+                    <!-- 重试按钮移到右上角 -->
+                    <button class="btn-primary-glass retry-btn" onclick="retryTaskFromCard('${taskId}')" style="display: none;">
+                        <span class="icon">🔄</span> 重试
+                    </button>
+                </div>
             </div>
             <div class="progress-track">
                 <div class="progress-fill" style="width: 0%"></div>
             </div>
             <div class="status-text">准备就绪</div>
+            
+            <!-- 执行步骤列表 -->
+            <div class="execution-steps"></div>
+            
+            <!-- 失败原因 -->
+            <div class="task-error-info" style="display: none;">
+                <div class="error-message"></div>
+            </div>
         </div>
     `;
 }
@@ -243,8 +278,27 @@ function updateTaskProgress(taskId, percent, text) {
 
     card.querySelector('.progress-fill').style.width = `${percent}%`;
     card.querySelector('.status-text').textContent = text;
+    
+    // 将步骤添加到执行步骤列表
+    addExecutionStep(taskId, text, 'in-progress');
 }
 
+// 添加执行步骤到列表
+function addExecutionStep(taskId, stepText, status) {
+    const card = document.getElementById(taskId);
+    if (!card) return;
+    
+    const stepsContainer = card.querySelector('.execution-steps');
+    const stepElement = document.createElement('div');
+    stepElement.className = `execution-step ${status}`;
+    stepElement.innerHTML = `
+        <span class="step-icon">${status === 'error' ? '❌' : status === 'success' ? '✅' : '⏳'}</span>
+        <span class="step-text">${stepText}</span>
+    `;
+    stepsContainer.appendChild(stepElement);
+}
+
+// 更新任务状态时的处理
 function updateTaskStatus(taskId, status, message) {
     const card = document.getElementById(taskId);
     if (!card) return;
@@ -254,9 +308,55 @@ function updateTaskStatus(taskId, status, message) {
     badge.textContent = status === 'error' ? '失败' : '完成';
 
     card.querySelector('.status-text').textContent = message;
+    
+    if (status === 'error') {
+        // 显示失败原因和右上角重试按钮
+        const errorInfo = card.querySelector('.task-error-info');
+        const errorMessage = card.querySelector('.error-message');
+        errorMessage.textContent = message;
+        errorInfo.style.display = 'block';
+        
+        // 显示右上角重试按钮
+        const retryBtn = card.querySelector('.retry-btn');
+        retryBtn.style.display = 'inline-flex';
+        
+        // 将最后一步标记为失败
+        const steps = card.querySelectorAll('.execution-step');
+        if (steps.length > 0) {
+            const lastStep = steps[steps.length - 1];
+            lastStep.classList.remove('in-progress', 'success');
+            lastStep.classList.add('error');
+            lastStep.querySelector('.step-icon').textContent = '❌';
+        }
+    } else if (status === 'success') {
+        // 将最后一步标记为成功
+        const steps = card.querySelectorAll('.execution-step');
+        if (steps.length > 0) {
+            const lastStep = steps[steps.length - 1];
+            lastStep.classList.remove('in-progress');
+            lastStep.classList.add('success');
+            lastStep.querySelector('.step-icon').textContent = '✅';
+        }
+    }
+}
+
+// 从卡片重试任务
+function retryTaskFromCard(taskId) {
+    const card = document.getElementById(taskId);
+    if (!card) return;
+    
+    const topic = card.querySelector('.status-topic').textContent;
+    const contentType = document.querySelector('input[name="content-type"]:checked').value;
+    
+    // 清空当前任务容器，重新开始生成
+    const container = document.getElementById('current-task-container');
+    container.innerHTML = '';
+    
+    startGenerate(topic, contentType, taskId);
 }
 
 async function simulateProgress(taskId) {
+    // 显示真实的执行步骤
     const steps = [
         { p: 30, t: '正在全网检索相关资料...' },
         { p: 50, t: 'AI 正在深度阅读与分析...' },
@@ -265,7 +365,7 @@ async function simulateProgress(taskId) {
     ];
 
     for (const step of steps) {
-        await new Promise(r => setTimeout(r, 1500));
+        await new Promise(r => setTimeout(r, 1000));
         const card = document.getElementById(taskId);
         // 如果任务已经结束（比如报错了），就不再更新
         if (!card || card.querySelector('.status-badge').classList.contains('error')) break;
@@ -462,13 +562,64 @@ async function batchGenerate() {
     updateSelectAllButtonState();
 }
 
-// --- 配置管理 ---
+// --- 配置管理 --- 
+
+// AI平台默认配置
+const PLATFORM_DEFAULTS = {
+    openai: {
+        base_url: 'https://api.openai.com/v1',
+        model: 'gpt-4o'
+    },
+    claude: {
+        base_url: 'https://api.anthropic.com/v1',
+        model: 'claude-3-5-sonnet-20240620'
+    },
+    gemini: {
+        base_url: 'https://generativelanguage.googleapis.com/v1',
+        model: 'gemini-pro'
+    },
+    tongyi: {
+        base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+        model: 'qwen-plus'
+    },
+    wenxin: {
+        base_url: 'https://aip.baidubce.com/rpc/2.0/ai_custom/v1/wenxinworkshop/chat',
+        model: 'ernie-3.5-8k'
+    },
+    doubao: {
+        base_url: 'https://ark.cn-beijing.volces.com/api/v3',
+        model: 'doubao-seed-1-8-251228'
+    }
+};
+
+// 更新平台配置
+function updatePlatformConfig() {
+    const platform = document.getElementById('ai_platform').value;
+    const defaults = PLATFORM_DEFAULTS[platform];
+    
+    if (defaults) {
+        // 只在用户没有手动修改过模型名称时才更新默认值
+        const modelInput = document.getElementById('default_model');
+        if (!modelInput.value || modelInput.value === PLATFORM_DEFAULTS[platform === 'doubao' ? 'doubao' : platform].model) {
+            document.getElementById('openai_base_url').value = defaults.base_url;
+            document.getElementById('default_model').value = defaults.model;
+            
+            // 提示用户
+            showToast(`已更新为${platform}平台默认配置`, 'info');
+        } else {
+            // 只更新Base URL，保留用户手动设置的模型名称
+            document.getElementById('openai_base_url').value = defaults.base_url;
+            showToast(`已更新为${platform}平台默认Base URL，保留当前模型名称`, 'info');
+        }
+    }
+}
 async function loadConfig() {
     try {
         const res = await fetch(`${API_BASE}/config`);
         const data = await res.json();
         if (data.success && data.config) {
             const c = data.config;
+            if (c.ai_platform) document.getElementById('ai_platform').value = c.ai_platform;
             if (c.llm_api_key) document.getElementById('llm_api_key').placeholder = '已配置 (******)';
             if (c.openai_base_url) document.getElementById('openai_base_url').value = c.openai_base_url;
             if (c.default_model) document.getElementById('default_model').value = c.default_model;
@@ -481,6 +632,7 @@ async function loadConfig() {
 
 async function saveConfig() {
     const config = {
+        ai_platform: document.getElementById('ai_platform').value,
         llm_api_key: document.getElementById('llm_api_key').value,
         openai_base_url: document.getElementById('openai_base_url').value,
         default_model: document.getElementById('default_model').value,
