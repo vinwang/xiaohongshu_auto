@@ -378,8 +378,14 @@ class ContentGenerator:
                 logger.error("没有可用的工具")
                 return []
 
-            # 将工具转换为OpenAI格式
-            openai_tools = [tool.to_openai_tool() for tool in available_tools]
+            # 根据模型类型决定是否转换工具格式
+            openai_tools = None
+            # 只有非豆包模型才转换为OpenAI工具格式
+            if not self.llm_client.is_doubao:
+                openai_tools = [tool.to_openai_tool() for tool in available_tools]
+                logger.info(f"转换了 {len(openai_tools)} 个工具为OpenAI格式")
+            else:
+                logger.info("豆包模型不支持工具调用，不转换工具格式")
 
             # 获取当前时间
             from datetime import datetime, timezone, timedelta
@@ -538,10 +544,19 @@ class ContentGenerator:
 ```
 """
 
+            # 创建初始消息
             messages = [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ]
+            
+            # 根据模型类型处理消息格式
+            if self.llm_client.is_doubao:
+                logger.info("使用豆包模型消息格式")
+                # 豆包模型消息格式特殊处理已在LLMClient内部完成
+                # _process_doubao_messages方法会在get_tool_call_response中调用
+            else:
+                logger.info("使用OpenAI模型消息格式")
 
             # 进行多轮工具调用
             max_iterations = 5
@@ -617,6 +632,12 @@ class ContentGenerator:
                         # 获取最终内容并解析
                         final_content = final_message.content or ""
                         logger.info("热点主题检索完成，开始解析结果")
+                        logger.debug(f"最终内容: {final_content}")
+
+                        # 检查内容是否包含错误信息
+                        if final_content and ("Error" in final_content or "error" in final_content or "I encountered an error" in final_content):
+                            logger.error(f"LLM返回了错误信息，不进行JSON解析: {final_content[:100]}...")
+                            return []
 
                         # 尝试从返回内容中提取JSON
                         topics = self._parse_topics_from_response(final_content)
@@ -624,6 +645,13 @@ class ContentGenerator:
                 else:
                     # 没有工具调用，直接返回内容
                     final_content = message.content or ""
+                    logger.debug(f"直接返回内容: {final_content}")
+                    
+                    # 检查内容是否包含错误信息
+                    if final_content and ("Error" in final_content or "error" in final_content or "I encountered an error" in final_content):
+                        logger.error(f"LLM返回了错误信息，不进行JSON解析: {final_content[:100]}...")
+                        return []
+                    
                     topics = self._parse_topics_from_response(final_content)
                     return topics
 
@@ -653,6 +681,11 @@ class ContentGenerator:
             解析出的主题列表
         """
         try:
+            # 检查内容是否为空
+            if not content or content.strip() == "":
+                logger.error(f"解析JSON失败: 内容为空")
+                return []
+            
             # 尝试直接解析JSON
             import re
 
@@ -667,6 +700,11 @@ class ContentGenerator:
                     json_str = json_match.group(0)
                 else:
                     json_str = content
+            
+            # 检查提取出的JSON字符串是否为空
+            if not json_str or json_str.strip() == "":
+                logger.error(f"解析JSON失败: 提取出的JSON字符串为空")
+                return []
 
             topics = json.loads(json_str)
 
@@ -685,8 +723,10 @@ class ContentGenerator:
 
         except json.JSONDecodeError as e:
             logger.error(f"解析JSON失败: {e}")
+            logger.error(f"尝试解析的内容: {content[:200]}...")  # 只记录前200个字符
         except Exception as e:
             logger.error(f"解析主题失败: {e}")
+            logger.error(f"尝试解析的内容: {content[:200]}...")  # 只记录前200个字符
 
         return []
 
@@ -717,8 +757,14 @@ class ContentGenerator:
                 logger.error("没有可用的工具")
                 return []
 
-            # 将工具转换为OpenAI格式
-            openai_tools = [tool.to_openai_tool() for tool in available_tools]
+            # 根据模型类型决定是否转换工具格式
+            openai_tools = None
+            # 只有非豆包模型才转换为OpenAI工具格式
+            if not self.llm_client.is_doubao:
+                openai_tools = [tool.to_openai_tool() for tool in available_tools]
+                logger.info(f"转换了 {len(openai_tools)} 个工具为OpenAI格式")
+            else:
+                logger.info("豆包模型不支持工具调用，不转换工具格式")
 
             # 构建提示词
             system_prompt = """你是一个专业的内容分析师，擅长从网页内容中提取有价值的主题。
@@ -1011,34 +1057,88 @@ class ContentGenerator:
                                     arguments["images"] = valid_images
                                     logger.info(f"✅ 图片验证通过，使用 {len(valid_images)} 个有效图片URL")
 
-                                    # 执行发布工具
+                                    # 执行发布工具 - 增强版日志和错误处理
                                     tool_result = None
+                                    found_tool = False
+                                    mcp_url = "未知"
+                                    
                                     for server in self.servers:
+                                        try:
+                                            mcp_url = server.config.get('url', '未知')
+                                            logger.info(f"🔌 尝试连接MCP服务器: {server.name} (URL: {mcp_url})")
+                                            
+                                            # 获取服务器上的可用工具
+                                            server_tools = await server.list_tools()
+                                            available_tools = [tool.name for tool in server_tools]
+                                            logger.debug(f"服务器 {server.name} 上的可用工具: {available_tools}")
+                                            
+                                            tool_exists = tool_name in available_tools
+                                            
+                                            if tool_exists:
+                                                found_tool = True
+                                                logger.info(f"✅ 在服务器 {server.name} 找到工具 {tool_name}")
+                                                
+                                                # 执行发布工具
+                                                try:
+                                                    logger.info(f"📤 向MCP服务器发送发布请求...")
+                                                    logger.debug(f"发布参数: {json.dumps(arguments, ensure_ascii=False)}")
+                                                    
+                                                    # 执行工具调用
+                                                    tool_result = await server.execute_tool(tool_name, arguments)
+                                                    
+                                                    logger.info(f"📥 MCP服务器返回发布结果")
+                                                    logger.debug(f"发布结果: {str(tool_result)}")
+                                                    break
+                                                except Exception as e:
+                                                    logger.error(f"❌ MCP服务器执行发布失败: {e}", exc_info=True)
+                                                    # 添加更详细的错误信息，包括MCP URL
+                                                    tool_result = f"MCP服务器执行发布失败: {str(e)} (URL: {mcp_url})\n详细错误: {str(e)}"
+                                                    logger.error(f"发布失败详情 - URL: {mcp_url}, 错误类型: {type(e).__name__}")
+                                            else:
+                                                logger.warning(f"⚠️ MCP服务器 {server.name} 未找到工具 {tool_name}，可用工具: {available_tools}")
+                                                tool_result = f"MCP服务器未找到发布工具: {tool_name} (URL: {mcp_url})\n可用工具: {available_tools}"
+                                        except Exception as e:
+                                            logger.error(f"❌ 无法连接到MCP服务器 {server.name}: {e}", exc_info=True)
+                                            # 添加更详细的连接错误信息
+                                            tool_result = f"无法连接到MCP服务器: {str(e)} (URL: {mcp_url})\n请检查MCP服务是否正常运行，URL是否正确"
+                                            logger.error(f"连接失败详情 - URL: {mcp_url}, 错误类型: {type(e).__name__}")
+
+                                    if not found_tool:
+                                        tool_result = f"未找到工具 {tool_name}，请检查MCP服务器配置"
+                                        logger.error(f"❌ 所有MCP服务器均未找到工具 {tool_name}")
+                                        
+                                        # 获取所有服务器的状态
+                                        all_servers_status = []
+                                        for server in self.servers:
+                                            try:
+                                                server_tools = await server.list_tools()
+                                                server_status = f"{server.name}: {[tool.name for tool in server_tools]} (URL: {server.config.get('url', '未知')})"
+                                            except Exception as e:
+                                                server_status = f"{server.name}: 连接失败 - {str(e)} (URL: {server.config.get('url', '未知')})"
+                                            all_servers_status.append(server_status)
+                                        
+                                        logger.error(f"所有MCP服务器状态: {all_servers_status}")
+                                        tool_result = f"未找到发布工具 {tool_name}\n所有MCP服务器状态:\n{chr(10).join(all_servers_status)}"
+                            else:
+                                # 其他工具正常执行
+                                tool_result = None
+                                found_tool = False
+                                for server in self.servers:
+                                    try:
                                         tools = await server.list_tools()
                                         if any(tool.name == tool_name for tool in tools):
+                                            found_tool = True
                                             try:
                                                 tool_result = await server.execute_tool(tool_name, arguments)
                                                 break
                                             except Exception as e:
-                                                logger.error(f"执行工具 {tool_name} 出错: {e}")
+                                                logger.error(f"执行工具 {tool_name} 出错: {e}", exc_info=True)
                                                 tool_result = f"Error: {str(e)}"
+                                    except Exception as e:
+                                        logger.error(f"从服务器 {server.name} 获取工具列表失败: {e}", exc_info=True)
+                                        tool_result = f"Error: {str(e)}"
 
-                                    if tool_result is None:
-                                        tool_result = f"未找到工具 {tool_name}"
-                            else:
-                                # 其他工具正常执行
-                                tool_result = None
-                                for server in self.servers:
-                                    tools = await server.list_tools()
-                                    if any(tool.name == tool_name for tool in tools):
-                                        try:
-                                            tool_result = await server.execute_tool(tool_name, arguments)
-                                            break
-                                        except Exception as e:
-                                            logger.error(f"执行工具 {tool_name} 出错: {e}")
-                                            tool_result = f"Error: {str(e)}"
-
-                                if tool_result is None:
+                                if not found_tool:
                                     tool_result = f"未找到工具 {tool_name}"
 
                             # 检查是否是 Tavily 搜索工具的错误返回

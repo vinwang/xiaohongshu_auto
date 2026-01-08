@@ -283,35 +283,65 @@ class LLMClient:
     """Manages communication with the LLM provider."""
 
     def __init__(self, api_key: str, base_url: str, default_model: str = "claude-sonnet-4-20250514") -> None:
+        # 豆包模型特殊处理：确保使用正确的base_url格式
+        is_doubao = 'doubao' in default_model.lower() or '/ark.cn-beijing.volces.com/' in base_url
+        if is_doubao:
+            # 豆包模型使用的base_url不应包含/chat/completions，OpenAI客户端会自动添加
+            if base_url.endswith('/chat/completions'):
+                base_url = base_url[:-len('/chat/completions')]
+        
+        import openai
         self.client = openai.OpenAI(
             api_key=api_key,
             base_url=base_url
         )
         self.default_model = default_model
+        self.is_doubao = is_doubao
 
     def get_tool_call_response(self, messages: list[dict[str, str]], tools: list = None, max_tokens: int = 32000):
         """Get a response from the LLM.
-
+        
         Args:
             messages: A list of message dictionaries.
             tools: List of tools for function calling.
-
+        
         Returns:
             The full response object from OpenAI.
-
+        
         Raises:
             Exception: If the request to the LLM fails.
         """
         try:
-            response = self.client.chat.completions.create(
-                model=self.default_model,
-                messages=messages,
-                tools=tools,
-                tool_choice="auto" if tools else None,
-                temperature=0.8,
-                # max_tokens=max_tokens
-            )
-            return response
+            # 豆包模型特殊处理：调整消息格式和参数
+            if self.is_doubao:
+                # 对于豆包模型，确保messages格式正确
+                processed_messages = self._process_doubao_messages(messages)
+                
+                logger.info(f"请求豆包模型 {self.default_model}，消息数: {processed_messages}")
+                
+                response = self.client.chat.completions.create(
+                    model=self.default_model,
+                    messages=processed_messages,
+                    # 豆包模型可能不支持tools参数，暂时不传递
+                    # tools=tools,
+                    # tool_choice="auto" if tools else None,
+                    temperature=0.8,
+                    max_tokens=4096,  # 豆包模型需要明确设置max_tokens
+                    timeout=30  # 豆包模型可能需要更长的超时时间
+                )
+                return response
+            else:
+                # 其他模型使用OpenAI客户端，添加超时设置
+                response = self.client.chat.completions.create(
+                    model=self.default_model,
+                    messages=messages,
+                    tools=tools,
+                    tool_choice="auto" if tools else None,
+                    temperature=0.8,
+                    max_tokens=max_tokens,
+                    timeout=30  # 添加30秒超时时间
+                )
+                return response
 
         except Exception as e:
             error_message = f"Error getting LLM response: {str(e)}"
@@ -329,15 +359,15 @@ class LLMClient:
 
     def get_final_response(self, messages: list[dict[str, str]], tools: list = None, max_tokens: int = 32000):
         """Get a final response that summarizes tool call results and answers the original question.
-
+        
         Args:
             messages: A list of message dictionaries including tool results.
             tools: List of tools for function calling (usually None for final response).
             max_tokens: Maximum tokens for the response.
-
+        
         Returns:
             The full response object from OpenAI with summarized content.
-
+        
         Raises:
             Exception: If the request to the LLM fails.
         """
@@ -378,15 +408,31 @@ class LLMClient:
                 "content": summary_prompt
             })
             
-            response = self.client.chat.completions.create(
-                model=self.default_model,
-                messages=enhanced_messages,
-                tools=tools,  # Allow tools for continuation if needed
-                tool_choice="auto" if tools else None,
-                temperature=0.3,  # Lower temperature for more focused response
-                # max_tokens=max_tokens
-            )
-            return response
+            # 豆包模型特殊处理：调整消息格式和参数
+            if self.is_doubao:
+                # 对于豆包模型，确保messages格式正确
+                processed_messages = self._process_doubao_messages(enhanced_messages)
+                
+                response = self.client.chat.completions.create(
+                    model=self.default_model,
+                    messages=processed_messages,
+                    temperature=0.3,  # Lower temperature for more focused response
+                    max_tokens=4096,  # 豆包模型需要明确设置max_tokens
+                    timeout=30  # 豆包模型可能需要更长的超时时间
+                )
+                return response
+            else:
+                # 其他模型使用OpenAI客户端，添加超时设置
+                response = self.client.chat.completions.create(
+                    model=self.default_model,
+                    messages=enhanced_messages,
+                    tools=tools,  # Allow tools for continuation if needed
+                    tool_choice="auto" if tools else None,
+                    temperature=0.3,  # Lower temperature for more focused response
+                    max_tokens=max_tokens,
+                    timeout=30  # 添加30秒超时时间
+                )
+                return response
 
         except Exception as e:
             error_message = f"Error getting final LLM response: {str(e)}"
@@ -401,8 +447,30 @@ class LLMClient:
                         })()
                     })()]
             return ErrorResponse(f"I encountered an error while generating the final response: {error_message}. Please try again.")
-        self.servers: list[Server] = servers
-        self.llm_client: LLMClient = llm_client
+            
+    def _process_doubao_messages(self, messages: list[dict[str, str]]):
+        """处理豆包模型的消息格式
+        
+        Args:
+            messages: 原始消息列表
+            
+        Returns:
+            处理后的消息列表，适合豆包模型
+        """
+        processed = []
+        for msg in messages:
+            processed_msg = msg.copy()
+            
+            # 豆包模型对content字段有特殊要求
+            if 'content' in processed_msg and isinstance(processed_msg['content'], str):
+                # 如果content是字符串，转换为豆包模型支持的格式
+                processed_msg['content'] = [{'type': 'text', 'text': processed_msg['content']}]
+            
+            processed.append(processed_msg)
+        
+        return processed
+        
+        
 
     async def cleanup_servers(self) -> None:
         """Clean up all servers properly."""
