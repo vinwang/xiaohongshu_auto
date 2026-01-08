@@ -15,7 +15,7 @@ from mcp.client.streamable_http import streamablehttp_client
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-
+logger = logging.getLogger(__name__)
 
 class Configuration:
     """Manages configuration and environment variables for the MCP client."""
@@ -317,7 +317,8 @@ class LLMClient:
                 # 对于豆包模型，确保messages格式正确
                 processed_messages = self._process_doubao_messages(messages)
                 
-                logger.info(f"请求豆包模型 {self.default_model}，消息数: {processed_messages}")
+                logger.info(f"请求豆包模型 {self.default_model}，消息数: {len(processed_messages)}")
+                logger.info(f"处理后的豆包模型消息: {json.dumps(processed_messages, ensure_ascii=False, indent=2)}")
                 
                 response = self.client.chat.completions.create(
                     model=self.default_model,
