@@ -347,6 +347,157 @@ async def test_login(request_data: TestLoginRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e))
 
 
+async def process_content_generation(topic: str, content_type: str, config: Dict[str, Any], task_id: Optional[str] = None) -> Dict[str, Any]:
+    """处理单个主题的内容生成和发布（通用函数）"""
+    try:
+        # 检查是否有已生成的内容（用于重试功能）
+        existing_content = None
+        if task_id:
+            # 从缓存中获取现有任务记录
+            existing_task = cache_manager.get_task_by_id(task_id)
+            if existing_task:
+                # 检查是否已有生成的内容
+                if existing_task.get('content') and existing_task.get('title'):
+                    existing_content = {
+                        'title': existing_task.get('title'),
+                        'content': existing_task.get('content'),
+                        'tags': existing_task.get('tags', []),
+                        'images': existing_task.get('images', [])
+                    }
+                    logger.info(f"找到已生成的内容，直接从发布步骤开始重试")
+        
+        if existing_content:
+            # 如果已有内容，直接尝试发布，跳过生成步骤
+            logger.info(f"使用已生成的内容重试发布: {existing_content['title']}")
+            
+            # 尝试使用现有服务器进行发布
+            if not server_manager.is_initialized():
+                logger.info("全局服务器未初始化,开始初始化...")
+                await server_manager.initialize(config)
+            
+            publish_success = False
+            publish_error = ""
+            
+            # 遍历所有可用服务器，尝试发布
+            for server in server_manager.get_servers():
+                try:
+                    logger.info(f"尝试在服务器 {server.name} 上发布内容")
+                    # 检查服务器上是否有publish_content工具
+                    server_tools = await server.list_tools()
+                    available_tools = [tool.name for tool in server_tools]
+                    
+                    if 'publish_content' in available_tools:
+                        logger.info(f"服务器 {server.name} 上有publish_content工具，尝试执行发布")
+                        publish_result = await server.execute_tool('publish_content', existing_content)
+                        logger.info(f"服务器 {server.name} 发布结果: {publish_result}")
+                        
+                        # 检查发布结果
+                        result_str = str(publish_result).lower()
+                        if "success" in result_str or "成功" in result_str or "published" in result_str:
+                            publish_success = True
+                            logger.info("✅ 重试发布成功")
+                            break
+                        else:
+                            publish_error = str(publish_result)
+                            logger.error(f"❌ 发布失败: {publish_error}")
+                    else:
+                        logger.warning(f"服务器 {server.name} 上没有publish_content工具")
+                except Exception as e:
+                    logger.error(f"在服务器 {server.name} 上发布失败: {e}")
+                    publish_error = str(e)
+            
+            # 构建结果
+            result = {
+                'success': True,
+                'title': existing_content['title'],
+                'content': existing_content['content'],
+                'tags': existing_content['tags'],
+                'images': existing_content['images'],
+                'publish_status': "已成功发布" if publish_success else "发布失败"
+            }
+        else:
+            # 没有已生成的内容，重新执行所有步骤
+            logger.info(f"没有找到已生成的内容，重新生成: {topic}")
+            # 创建内容生成器
+            generator = ContentGenerator(config)
+
+            # 异步执行内容生成和发布
+            result = await generator.generate_and_publish(topic, content_type)
+
+        # 无论发布是否成功，只要内容生成成功就返回成功响应
+        response_data = {
+            'title': result.get('title', f'关于{topic}的精彩内容'),
+            'content': result.get('content', ''),
+            'tags': result.get('tags', []),
+            'images': result.get('images', []),
+            'publish_status': result.get('publish_status', ''),
+            'publish_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+
+        # 保存到缓存
+        task_record = {
+            'topic': topic,
+            'status': 'success' if result.get('publish_status') == '已成功发布' else 'error',
+            'progress': 100,
+            'message': result.get('publish_status') or '发布失败',
+            'content_type': content_type,
+            **response_data
+        }
+        
+        # 如果提供了task_id，则更新现有任务，否则添加新任务
+        if task_id:
+            cache_manager.update_task(task_id, task_record)
+        else:
+            cache_manager.add_task(task_record)
+
+        return {
+            'success': result.get('success', True),
+            **response_data
+        }
+
+    except Exception as e:
+        logger.error(f"处理主题 '{topic}' 失败: {e}", exc_info=True)
+        
+        # 检查是否有已生成的内容可以保存
+        if 'result' in locals() and result:
+            # 尝试提取已生成的内容
+            response_data = {
+                'topic': topic,
+                'title': result.get('title', f'关于{topic}的精彩内容'),
+                'content': result.get('content', ''),
+                'tags': result.get('tags', []),
+                'images': result.get('images', []),
+                'publish_status': '生成失败',
+                'publish_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+            
+            task_record = {
+                'topic': topic,
+                'status': 'error',
+                'progress': 100,
+                'message': f'生成失败: {str(e)}',
+                'content_type': content_type,
+                **response_data
+            }
+        else:
+            # 没有生成内容，只保存错误信息
+            task_record = {
+                'topic': topic,
+                'status': 'error',
+                'progress': 0,
+                'message': str(e),
+                'content_type': content_type
+            }
+        
+        cache_manager.add_task(task_record)
+        
+        return {
+            'topic': topic,
+            'status': 'error',
+            'error': str(e)
+        }
+
+
 @app.post("/api/generate-and-publish")
 async def generate_and_publish(request_data: GeneratePublishRequest) -> Dict[str, Any]:
     """生成内容并发布到小红书"""
@@ -367,63 +518,16 @@ async def generate_and_publish(request_data: GeneratePublishRequest) -> Dict[str
         if not config.get('llm_api_key') or not config.get('xhs_mcp_url'):
             raise HTTPException(status_code=400, detail="请先完成配置")
 
-        # 创建内容生成器
-        generator = ContentGenerator(config)
-
-        # 异步执行内容生成和发布
-        result = await generator.generate_and_publish(topic, content_type)
-
+        # 调用通用处理函数
+        result = await process_content_generation(topic, content_type, config, task_id)
+        
         if result.get('success'):
-            response_data = {
-                'title': result.get('title', ''),
-                'content': result.get('content', ''),
-                'tags': result.get('tags', []),
-                'images': result.get('images', []),
-                'publish_status': result.get('publish_status', ''),
-                'publish_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            }
-
-            # 保存到缓存
-            task_record = {
-                'topic': topic,
-                'status': 'success',
-                'progress': 100,
-                'message': '发布成功',
-                'content_type': content_type,
-                **response_data
-            }
-            
-            # 如果提供了task_id，则更新现有任务，否则添加新任务
-            if task_id:
-                cache_manager.update_task(task_id, task_record)
-            else:
-                cache_manager.add_task(task_record)
-
             return {
                 'success': True,
-                'message': '内容生成并发布成功',
-                'data': response_data
+                **{k: v for k, v in result.items() if k != 'success'}
             }
         else:
-            # 保存失败记录到缓存
-            error_record = {
-                'topic': topic,
-                'status': 'error',
-                'progress': 0,
-                'message': result.get('error', '生成失败'),
-                'content_type': content_type
-            }
-            
-            # 如果提供了task_id，则更新现有任务，否则添加新任务
-            if task_id:
-                cache_manager.update_task(task_id, error_record)
-            else:
-                cache_manager.add_task(error_record)
-
-            raise HTTPException(
-                status_code=500,
-                detail=result.get('error', '生成失败')
-            )
+            raise HTTPException(status_code=500, detail=result.get('error', '生成失败'))
 
     except HTTPException:
         raise
@@ -547,6 +651,66 @@ async def fetch_trending_topics(request_data: FetchTrendingTopicsRequest = None)
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class RetryPublishRequest(BaseModel):
+    """重试发布请求模型"""
+    title: str
+    content: str
+    tags: List[str]
+    images: List[str]
+
+
+@app.post("/api/retry-publish")
+async def retry_publish(request_data: RetryPublishRequest) -> Dict[str, Any]:
+    """重试发布内容到小红书"""
+    try:
+        # 检查配置是否完整
+        config = config_manager.load_config()
+        if not config.get('llm_api_key') or not config.get('xhs_mcp_url'):
+            raise HTTPException(status_code=400, detail="请先完成配置")
+
+        # 如果全局服务器未初始化,先初始化
+        if not server_manager.is_initialized():
+            logger.info("全局服务器未初始化,开始初始化...")
+            await server_manager.initialize(config)
+
+        # 获取可用工具
+        available_tools = await server_manager.get_available_tools()
+        publish_tool = next((tool for tool in available_tools if tool.name == 'publish_content'), None)
+        if not publish_tool:
+            raise HTTPException(status_code=500, detail="未找到发布工具")
+
+        # 获取LLM客户端
+        llm_client = server_manager.get_llm_client()
+
+        # 执行发布
+        result = await llm_client.execute_tool(
+            tool_name='publish_content',
+            arguments={
+                'title': request_data.title,
+                'content': request_data.content,
+                'tags': request_data.tags,
+                'images': request_data.images
+            }
+        )
+
+        logger.info(f"重试发布结果: {result}")
+
+        return {
+            'success': True,
+            'message': '发布成功',
+            'result': result
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"重试发布失败: {e}", exc_info=True)
+        return {
+            'success': False,
+            'error': str(e)
+        }
+
+
 @app.post("/api/fetch-topics-from-url")
 async def fetch_topics_from_url(request_data: FetchTopicsFromUrlRequest) -> Dict[str, Any]:
     """从URL爬取内容并提取主题"""
@@ -612,78 +776,11 @@ async def batch_generate_and_publish(request_data: BatchGeneratePublishRequest) 
         async def process_single_topic(topic: str):
             """处理单个主题（带信号量控制）"""
             async with semaphore:
-                try:
-                    logger.info(f"开始处理主题: {topic}")
-
-                    # 创建内容生成器
-                    generator = ContentGenerator(config)
-
-                    # 执行内容生成和发布
-                    result = await generator.generate_and_publish(topic, content_type)
-
-                    if result.get('success'):
-                        response_data = {
-                            'topic': topic,
-                            'title': result.get('title', ''),
-                            'content': result.get('content', ''),
-                            'tags': result.get('tags', []),
-                            'images': result.get('images', []),
-                            'publish_status': result.get('publish_status', ''),
-                            'publish_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                            'status': 'success'
-                        }
-
-                        # 保存到缓存
-                        task_record = {
-                            'topic': topic,
-                            'status': 'success',
-                            'progress': 100,
-                            'message': '发布成功',
-                            'content_type': content_type,
-                            **response_data
-                        }
-                        cache_manager.add_task(task_record)
-
-                        logger.info(f"主题处理成功: {topic}")
-                        return response_data
-                    else:
-                        error_msg = result.get('error', '生成失败')
-
-                        logger.error(f"主题处理失败: {topic} - {error_msg}")
-
-                        # 保存失败记录到缓存
-                        cache_manager.add_task({
-                            'topic': topic,
-                            'status': 'error',
-                            'progress': 0,
-                            'message': error_msg,
-                            'content_type': content_type
-                        })
-
-                        return {
-                            'topic': topic,
-                            'status': 'error',
-                            'error': error_msg
-                        }
-
-                except Exception as e:
-                    logger.error(f"处理主题 '{topic}' 失败: {e}", exc_info=True)
-
-                    # 保存失败记录到缓存
-                    cache_manager.add_task({
-                        'topic': topic,
-                        'status': 'error',
-                        'progress': 0,
-                        'progress': 0,
-                        'message': str(e),
-                        'content_type': content_type
-                    })
-
-                    return {
-                        'topic': topic,
-                        'status': 'error',
-                        'error': str(e)
-                    }
+                logger.info(f"开始处理主题: {topic}")
+                # 调用通用处理函数
+                result = await process_content_generation(topic, content_type, config)
+                logger.info(f"主题处理{'成功' if result.get('success') else '失败'}: {topic}")
+                return result
 
         # 并发处理所有主题（最多同时5个）
         logger.info(f"开始批量处理 {len(topics)} 个主题，最多同时运行5个任务")

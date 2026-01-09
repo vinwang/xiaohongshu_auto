@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import shutil
+import traceback
 from contextlib import AsyncExitStack
 from typing import Any
 
@@ -317,19 +318,57 @@ class LLMClient:
                 # 对于豆包模型，确保messages格式正确
                 processed_messages = self._process_doubao_messages(messages)
                 
-                logger.info(f"请求豆包模型 {self.default_model}，消息数: {len(processed_messages)}")
-                logger.info(f"处理后的豆包模型消息: {json.dumps(processed_messages, ensure_ascii=False, indent=2)}")
+                # 豆包模型支持工具调用，转换tools格式并传递
+                processed_tools = None
+                if tools:
+                    # 转换为豆包模型支持的工具格式
+                    processed_tools = []
+                    for tool in tools:
+                        if isinstance(tool, Tool):
+                            processed_tools.append(tool.to_openai_tool())
+                        elif isinstance(tool, dict):
+                            processed_tools.append(tool)
                 
-                response = self.client.chat.completions.create(
-                    model=self.default_model,
-                    messages=processed_messages,
-                    # 豆包模型可能不支持tools参数，暂时不传递
-                    # tools=tools,
-                    # tool_choice="auto" if tools else None,
-                    temperature=0.8,
-                    max_tokens=4096,  # 豆包模型需要明确设置max_tokens
-                    timeout=30  # 豆包模型可能需要更长的超时时间
-                )
+                # 记录请求参数
+                request_params = {
+                    'model': self.default_model,
+                    'messages': processed_messages,
+                    'temperature': 0.8,
+                    'max_tokens': 4096,
+                    'timeout': 120  # 增加超时时间到120秒，因为豆包模型响应较慢
+                }
+                
+                # 发送请求，豆包模型支持tools参数
+                logger.info(f"发送请求到豆包模型: {self.default_model}")
+                logger.info(f"请求URL: {self.client.base_url}")
+                logger.info(f"请求参数: model={self.default_model}, messages_length={len(processed_messages)}, temperature=0.8, max_tokens=4096")
+                logger.info(f"是否包含tools: {processed_tools is not None}")
+                if processed_tools:
+                    logger.info(f"工具数量: {len(processed_tools)}")
+                    for tool in processed_tools:
+                        if isinstance(tool, dict) and 'function' in tool:
+                            logger.info(f"工具名称: {tool['function']['name']}")
+                
+                try:
+                    response = self.client.chat.completions.create(
+                        model=self.default_model,
+                        messages=processed_messages,
+                        tools=processed_tools if processed_tools else None,
+                        tool_choice="auto" if processed_tools else None,
+                        temperature=0.8,
+                        max_tokens=4096,  # 豆包模型需要明确设置max_tokens
+                        timeout=120  # 增加超时时间到120秒，因为豆包模型响应较慢
+                    )
+                    logger.info(f"✅ 豆包模型请求成功，响应状态: 200")
+                except Exception as e:
+                    logger.error(f"❌ 豆包模型请求失败: {type(e).__name__}: {str(e)}")
+                    logger.error(f"错误详情: {traceback.format_exc()}")
+                    raise
+                
+                # 记录响应信息
+                # logger.info(f"豆包模型响应状态: 成功")
+                # logger.info(f"豆包模型响应: {json.dumps(response.model_dump(), ensure_ascii=False, indent=2)}")
+                
                 return response
             else:
                 # 其他模型使用OpenAI客户端，添加超时设置
@@ -414,13 +453,35 @@ class LLMClient:
                 # 对于豆包模型，确保messages格式正确
                 processed_messages = self._process_doubao_messages(enhanced_messages)
                 
+                logger.info(f"请求豆包模型生成最终响应，模型: {self.default_model}，消息数: {len(processed_messages)}")
+                logger.info(f"处理后的豆包模型消息: {json.dumps(processed_messages, ensure_ascii=False, indent=2)}")
+                
+                # 记录请求参数
+                request_params = {
+                    'model': self.default_model,
+                    'messages': processed_messages,
+                    'temperature': 0.3,
+                    'max_tokens': 4096,
+                    'timeout': 120  # 增加超时时间到120秒，因为豆包模型响应较慢
+                }
+                logger.info(f"请求豆包模型最终响应参数: {json.dumps(request_params, ensure_ascii=False, indent=2)}")
+                
+                # 记录请求URL
+                logger.info(f"请求豆包模型URL: {self.client.base_url}")
+                
+                # 发送请求
                 response = self.client.chat.completions.create(
                     model=self.default_model,
                     messages=processed_messages,
                     temperature=0.3,  # Lower temperature for more focused response
                     max_tokens=4096,  # 豆包模型需要明确设置max_tokens
-                    timeout=30  # 豆包模型可能需要更长的超时时间
+                    timeout=120  # 增加超时时间到120秒，因为豆包模型响应较慢
                 )
+                
+                # 记录响应信息
+                logger.info(f"豆包模型最终响应状态: 成功")
+                logger.info(f"豆包模型最终响应: {json.dumps(response.model_dump(), ensure_ascii=False, indent=2)}")
+                
                 return response
             else:
                 # 其他模型使用OpenAI客户端，添加超时设置
@@ -459,189 +520,46 @@ class LLMClient:
             处理后的消息列表，适合豆包模型
         """
         processed = []
+        
+        # 豆包模型支持system角色，直接处理每个消息的content格式
         for msg in messages:
             processed_msg = msg.copy()
             
             # 豆包模型对content字段有特殊要求
-            if 'content' in processed_msg and isinstance(processed_msg['content'], str):
-                # 如果content是字符串，转换为豆包模型支持的格式
-                processed_msg['content'] = [{'type': 'text', 'text': processed_msg['content']}]
+            if 'content' in processed_msg:
+                content = processed_msg['content']
+                if isinstance(content, str):
+                    # 如果content是字符串，转换为豆包模型支持的格式
+                    processed_msg['content'] = [{'type': 'text', 'text': content}]
+                elif isinstance(content, list):
+                    # 如果content已经是列表，确保每个元素都有正确的格式
+                    formatted_content = []
+                    for item in content:
+                        if isinstance(item, dict):
+                            # 如果是字典，确保有type和text属性
+                            if 'type' not in item or 'text' not in item:
+                                # 如果缺少必要属性，尝试提取文本并重新格式化
+                                text = item.get('text', '')
+                                if not text:
+                                    # 尝试从其他字段获取文本
+                                    text = str(item.get('content', '') if 'content' in item else item)
+                                formatted_content.append({'type': 'text', 'text': text})
+                            else:
+                                # 格式正确，直接添加
+                                formatted_content.append(item)
+                        elif isinstance(item, str):
+                            # 如果是字符串，转换为正确格式
+                            formatted_content.append({'type': 'text', 'text': item})
+                        else:
+                            # 其他类型，转换为字符串处理
+                            formatted_content.append({'type': 'text', 'text': str(item)})
+                    processed_msg['content'] = formatted_content
+                else:
+                    # 其他类型，转换为字符串处理
+                    processed_msg['content'] = [{'type': 'text', 'text': str(content)}]
             
             processed.append(processed_msg)
         
+        logger.debug(f"处理后的豆包消息: 原消息数={len(messages)}, 处理后消息数={len(processed)}")
+        logger.debug(f"处理后的豆包消息详情: {processed}")
         return processed
-        
-        
-
-    async def cleanup_servers(self) -> None:
-        """Clean up all servers properly."""
-        for server in reversed(self.servers):
-            try:
-                await server.cleanup()
-            except Exception as e:
-                logging.warning(f"Warning during final cleanup: {e}")
-
-    async def process_llm_response(self, response) -> tuple[str, bool]:
-        """Process the LLM response and execute tools if needed.
-
-        Args:
-            response: The full response object from OpenAI.
-
-        Returns:
-            Tuple of (content, has_tool_calls) where content is the response text
-            and has_tool_calls indicates if tools were executed.
-        """
-        import json
-        
-        message = response.choices[0].message
-        
-        # Check if there are tool calls
-        if message.tool_calls:
-            tool_results = []
-            for tool_call in message.tool_calls:
-                tool_name = tool_call.function.name
-                try:
-                    arguments = json.loads(tool_call.function.arguments)
-                except json.JSONDecodeError:
-                    arguments = {}
-                
-                logging.info(f"Executing tool: {tool_name}")
-                logging.info(f"With arguments: {arguments}")
-
-                # Find the appropriate server and execute the tool
-                tool_executed = False
-                for server in self.servers:
-                    tools = await server.list_tools()
-                    if any(tool.name == tool_name for tool in tools):
-                        try:
-                            result = await server.execute_tool(tool_name, arguments)
-
-                            if isinstance(result, dict) and "progress" in result:
-                                progress = result["progress"]
-                                total = result["total"]
-                                percentage = (progress / total) * 100
-                                logging.info(f"Progress: {progress}/{total} ({percentage:.1f}%)")
-
-                            tool_results.append(f"Tool {tool_name} result: {result}")
-                            tool_executed = True
-                            break
-                        except Exception as e:
-                            error_msg = f"Error executing tool {tool_name}: {str(e)}"
-                            logging.error(error_msg)
-                            tool_results.append(error_msg)
-                            tool_executed = True
-                            break
-
-                if not tool_executed:
-                    tool_results.append(f"No server found with tool: {tool_name}")
-
-            return "\n".join(tool_results), True
-        else:
-            # No tool calls, return the content directly
-            return message.content or "", False
-
-    async def start(self) -> None:
-        """Main chat session handler."""
-        try:
-            for server in self.servers:
-                try:
-                    await server.initialize()
-                except Exception as e:
-                    logging.error(f"Failed to initialize server: {e}")
-                    await self.cleanup_servers()
-                    return
-
-            all_tools = []
-            for server in self.servers:
-                tools = await server.list_tools()
-                all_tools.extend(tools)
-                print(tools)
-
-            openai_tools = [tool.to_openai_tool() for tool in all_tools] if all_tools else None
-            print("available openai_tools:", [tool["function"]["name"] for tool in openai_tools])
-            system_message = (
-                "You are a helpful assistant with access to various tools. "
-                "Use the appropriate tool based on the user's question. "
-                "If no tool is needed, reply directly with a helpful response."
-            )
-
-            messages = [{"role": "system", "content": system_message}]
-
-            while True:
-                try:
-                    user_input = "搜索当前机器学习最新研究趋势" #input("You: ").strip().lower()
-                    if user_input in ["quit", "exit"]:
-                        logging.info("\nExiting...")
-                        break
-
-                    messages.append({"role": "user", "content": user_input})
-
-                    response = self.llm_client.get_tool_call_response(messages, openai_tools, max_tokens=8192)
-                    result, has_tool_calls = await self.process_llm_response(response)
-
-                    if has_tool_calls:
-                        # Add the assistant's message with tool calls
-                        assistant_message = response.choices[0].message
-                        
-                        # Create proper assistant message with tool calls
-                        assistant_msg = {"role": "assistant", "content": assistant_message.content or ""}
-                        if assistant_message.tool_calls:
-                            assistant_msg["tool_calls"] = [
-                                {
-                                    "id": tool_call.id,
-                                    "type": "function",
-                                    "function": {
-                                        "name": tool_call.function.name,
-                                        "arguments": tool_call.function.arguments
-                                    }
-                                }
-                                for tool_call in assistant_message.tool_calls
-                            ]
-                        messages.append(assistant_msg)
-                        
-                        # Add tool results as tool messages (not system messages)
-                        if assistant_message.tool_calls:
-                            for i, tool_call in enumerate(assistant_message.tool_calls):
-                                tool_result_parts = result.split('\n')
-                                tool_result = tool_result_parts[i] if i < len(tool_result_parts) else result
-                                messages.append({
-                                    "role": "tool",
-                                    "tool_call_id": tool_call.id,
-                                    "content": tool_result
-                                })
-                        
-                        logging.info("\nTool execution results: %s", result)
-
-                        # Get final response after tool execution
-                        final_response = self.llm_client.get_final_response(messages, openai_tools)
-                        final_content = final_response.choices[0].message.content or ""
-                        logging.info("\nAssistant: %s", final_content)
-                        messages.append({"role": "assistant", "content": final_content})
-                    else:
-                        # No tool calls, just add the response content
-                        logging.info("\nAssistant: %s", result)
-                        messages.append({"role": "assistant", "content": result or ""})
-
-                except KeyboardInterrupt:
-                    logging.info("\nExiting...")
-                    break
-
-        finally:
-            await self.cleanup_servers()
-
-
-async def main() -> None:
-    """Initialize and run the chat session."""
-    config = Configuration()
-    # Get the directory of the current script
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    config_path = os.path.join(script_dir, "servers_config.json")
-    server_config = config.load_config(config_path)
-    servers = [Server(name, srv_config) for name, srv_config in server_config["mcpServers"].items()]
-    llm_client = LLMClient(config.llm_api_key, config.openai_base_url, config.default_model)
-    chat_session = ChatSession(servers, llm_client)
-    await chat_session.start()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())

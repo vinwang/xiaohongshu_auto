@@ -212,12 +212,20 @@ async function startGenerate(initialTopic = null, initialContentType = null, exi
         }
 
         if (response.ok && responseData.success) {
-            updateTaskProgress(taskId, 100, '发布成功！');
-            showToast('内容创作完成', 'success');
+            // 检查发布状态
+            if (responseData.publish_status === '已成功发布') {
+                updateTaskProgress(taskId, 100, '发布成功！');
+                showToast('内容创作完成', 'success');
+            } else {
+                // 发布失败但内容生成成功
+                updateTaskStatus(taskId, 'error', '发布失败');
+                // 只显示简短的错误信息，避免重复
+                showToast('内容生成成功，但发布到小红书失败', 'error');
+            }
 
             // 延迟展示结果
             setTimeout(() => {
-                showResultModal(responseData.data);
+                showResultModal(responseData);
             }, 1000);
         } else {
             // 提取详细的错误信息
@@ -260,14 +268,6 @@ function createTaskStatusCard(taskId, topic) {
                 <div class="progress-fill" style="width: 0%"></div>
             </div>
             <div class="status-text">准备就绪</div>
-            
-            <!-- 执行步骤列表 -->
-            <div class="execution-steps"></div>
-            
-            <!-- 失败原因 -->
-            <div class="task-error-info" style="display: none;">
-                <div class="error-message"></div>
-            </div>
         </div>
     `;
 }
@@ -278,25 +278,9 @@ function updateTaskProgress(taskId, percent, text) {
 
     card.querySelector('.progress-fill').style.width = `${percent}%`;
     card.querySelector('.status-text').textContent = text;
-    
-    // 将步骤添加到执行步骤列表
-    addExecutionStep(taskId, text, 'in-progress');
 }
 
-// 添加执行步骤到列表
-function addExecutionStep(taskId, stepText, status) {
-    const card = document.getElementById(taskId);
-    if (!card) return;
-    
-    const stepsContainer = card.querySelector('.execution-steps');
-    const stepElement = document.createElement('div');
-    stepElement.className = `execution-step ${status}`;
-    stepElement.innerHTML = `
-        <span class="step-icon">${status === 'error' ? '❌' : status === 'success' ? '✅' : '⏳'}</span>
-        <span class="step-text">${stepText}</span>
-    `;
-    stepsContainer.appendChild(stepElement);
-}
+
 
 // 更新任务状态时的处理
 function updateTaskStatus(taskId, status, message) {
@@ -310,33 +294,9 @@ function updateTaskStatus(taskId, status, message) {
     card.querySelector('.status-text').textContent = message;
     
     if (status === 'error') {
-        // 显示失败原因和右上角重试按钮
-        const errorInfo = card.querySelector('.task-error-info');
-        const errorMessage = card.querySelector('.error-message');
-        errorMessage.textContent = message;
-        errorInfo.style.display = 'block';
-        
         // 显示右上角重试按钮
         const retryBtn = card.querySelector('.retry-btn');
         retryBtn.style.display = 'inline-flex';
-        
-        // 将最后一步标记为失败
-        const steps = card.querySelectorAll('.execution-step');
-        if (steps.length > 0) {
-            const lastStep = steps[steps.length - 1];
-            lastStep.classList.remove('in-progress', 'success');
-            lastStep.classList.add('error');
-            lastStep.querySelector('.step-icon').textContent = '❌';
-        }
-    } else if (status === 'success') {
-        // 将最后一步标记为成功
-        const steps = card.querySelectorAll('.execution-step');
-        if (steps.length > 0) {
-            const lastStep = steps[steps.length - 1];
-            lastStep.classList.remove('in-progress');
-            lastStep.classList.add('success');
-            lastStep.querySelector('.step-icon').textContent = '✅';
-        }
     }
 }
 
@@ -387,7 +347,67 @@ function showResultModal(data) {
     const imgContainer = document.getElementById('res-images');
     imgContainer.innerHTML = (data.images || []).map(url => `<img src="${url}" onclick="window.open('${url}')">`).join('');
 
+    // 显示发布状态
+    const statusContainer = document.getElementById('res-status');
+    if (data.publish_status === '已成功发布') {
+        statusContainer.innerHTML = '<span class="status-success">发布成功</span>';
+        // 隐藏重试按钮
+        document.getElementById('res-retry-btn').style.display = 'none';
+    } else {
+        statusContainer.innerHTML = `<span class="status-error">发布失败</span>`;
+        // 显示重试按钮
+        document.getElementById('res-retry-btn').style.display = 'block';
+        // 保存当前数据到全局变量，用于重试
+        window.currentContentData = data;
+    }
+
     openModal('result');
+}
+
+// 重试发布
+async function retryPublish() {
+    if (!window.currentContentData) return;
+    
+    const data = window.currentContentData;
+    const retryBtn = document.getElementById('res-retry-btn');
+    const originalText = retryBtn.innerHTML;
+    
+    // 显示加载状态
+    retryBtn.innerHTML = '<span class="icon">⏳</span> 重试中...';
+    retryBtn.disabled = true;
+    
+    try {
+        // 调用重试发布API
+        const response = await fetch(`${API_BASE}/retry-publish`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                title: data.title,
+                content: data.content,
+                tags: data.tags,
+                images: data.images
+            })
+        });
+        
+        const responseData = await response.json();
+        
+        if (response.ok && responseData.success) {
+            showToast('发布成功', 'success');
+            // 更新结果模态框中的状态
+            document.getElementById('res-status').innerHTML = '<span class="status-success">发布成功</span>';
+            retryBtn.style.display = 'none';
+        } else {
+            showToast('发布失败: ' + (responseData.error || '未知错误'), 'error');
+            // 恢复按钮状态
+            retryBtn.innerHTML = originalText;
+            retryBtn.disabled = false;
+        }
+    } catch (error) {
+        showToast('发布失败: ' + error.message, 'error');
+        // 恢复按钮状态
+        retryBtn.innerHTML = originalText;
+        retryBtn.disabled = false;
+    }
 }
 
 // --- 热点发现 ---
@@ -776,10 +796,9 @@ function renderHistoryList(tasks) {
                             </div>
                         </div>
                         <div class="history-actions">
-                            ${task.status === 'error'
-                ? `<button class="btn-text error-retry" onclick='retryTask(${JSON.stringify(task).replace(/'/g, "&#39;")})'>重试</button>`
-                : `<button class="btn-text" onclick='showResultModal(${JSON.stringify(task).replace(/'/g, "&#39;")})'>查看</button>`
-            }
+                            <!-- 无论任务状态如何，只要有生成的内容就显示查看按钮 -->
+                            ${(task.title || task.content) ? `<button class="btn-text" onclick='showResultModal(${JSON.stringify(task).replace(/'/g, "&#39;")})'>查看</button>` : ''}
+                            ${task.status === 'error' ? `<button class="btn-text error-retry" onclick='retryTask(${JSON.stringify(task).replace(/'/g, "&#39;")})'>重试</button>` : ''}
                             <button class="btn-icon-sm delete-btn" onclick='deleteTask("${task.task_id}")' title="删除">🗑️</button>
                         </div>
                     </div>

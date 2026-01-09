@@ -1276,10 +1276,8 @@ class ContentGenerator:
 
                         if not step_result.get('success'):
                             logger.error(f"步骤 {step['id']} 执行失败")
-                            return {
-                                'success': False,
-                                'error': f"步骤 {step['id']} 执行失败: {step_result.get('error', '未知错误')}"
-                            }
+                            # 步骤执行失败，但尝试继续执行，提取已生成的内容
+                            continue
 
                         logger.info(f"步骤 {step['id']} 执行成功")
                         break  # 成功则跳出重试循环
@@ -1309,34 +1307,7 @@ class ContentGenerator:
                                 'error': f"步骤 {step['id']} 执行失败: 已轮换所有Tavily Key但仍然失败"
                             }
 
-            # 检查发布步骤（step3）是否成功
-            step3_result = next((r for r in results if r['step_id'] == 'step3'), None)
-            publish_success = step3_result.get('publish_success', False) if step3_result else False
-
-            # 如果发布失败，返回失败结果，包含详细的错误信息
-            if not publish_success:
-                logger.error("内容发布失败")
-                publish_error = step3_result.get('publish_error', '') if step3_result else ''
-
-                # 构建详细的错误消息
-                error_message = '内容生成完成，但发布到小红书失败。'
-                if publish_error:
-                    # 清理错误信息，使其更易读
-                    error_detail = publish_error.strip()
-                    # 如果错误信息太长，截取前500个字符
-                    if len(error_detail) > 500:
-                        error_detail = error_detail[:500] + '...'
-                    error_message += f'\n\n错误详情：{error_detail}'
-                else:
-                    error_message += '\n请检查小红书MCP服务连接或稍后重试。'
-
-                return {
-                    'success': False,
-                    'error': error_message
-                }
-
-            # 从 step3 的工具调用中提取实际发布的内容
-            step3_result = next((r for r in results if r['step_id'] == 'step3'), None)
+            # 初始化内容数据
             content_data = {
                 'title': f'关于{topic}的精彩内容',
                 'content': '',
@@ -1344,29 +1315,89 @@ class ContentGenerator:
                 'images': []
             }
 
-            # 尝试从 tool_calls 中提取 publish_content 的参数
+            # 首先尝试从 step2 结果中提取内容（撰写内容的步骤）
+            step2_result = next((r for r in results if r['step_id'] == 'step2'), None)
+            if step2_result and step2_result.get('response'):
+                try:
+                    # 尝试从 step2 的响应中解析内容
+                    from core.xhs_llm_client import Tool
+                    # 检查是否能从 response 中提取 JSON 格式的内容
+                    import re
+                    json_match = re.search(r'```json\s*([\s\S]*?)\s*```', step2_result['response'])
+                    if json_match:
+                        # 如果包含 JSON 代码块，尝试解析
+                        try:
+                            step2_content = json.loads(json_match.group(1))
+                            if isinstance(step2_content, dict):
+                                # 如果是字典，提取内容字段
+                                if 'content' in step2_content:
+                                    content_data['content'] = step2_content['content']
+                                if 'title' in step2_content:
+                                    content_data['title'] = step2_content['title']
+                                if 'tags' in step2_content:
+                                    content_data['tags'] = step2_content['tags']
+                                if 'images' in step2_content:
+                                    content_data['images'] = step2_content['images']
+                                logger.info(f"成功从 step2 响应的 JSON 中提取内容数据")
+                        except json.JSONDecodeError as e:
+                            logger.warning(f"无法解析 step2 响应中的 JSON: {e}")
+                            # 如果无法解析 JSON，直接使用响应作为内容
+                            content_data['content'] = step2_result['response']
+                    else:
+                        # 如果没有 JSON 代码块，直接使用响应作为内容
+                        content_data['content'] = step2_result['response']
+                        logger.info(f"成功从 step2 响应中提取内容数据")
+                except Exception as e:
+                    logger.error(f"从 step2 结果中提取内容失败: {e}")
+
+            # 然后尝试从 step3 的工具调用中提取实际发布的内容（优先级更高）
+            step3_result = next((r for r in results if r['step_id'] == 'step3'), None)
             if step3_result and step3_result.get('tool_calls'):
                 try:
-                    # 查找 publish_content 工具调用
-                    publish_call = next(
-                        (tc for tc in step3_result['tool_calls'] if tc['name'] == 'publish_content'),
-                        None
-                    )
+                    # 查找 publish_content 工具调用，使用最后一次调用（最可能成功的）
+                    publish_calls = [tc for tc in step3_result['tool_calls'] if tc['name'] == 'publish_content']
+                    if publish_calls:
+                        # 使用最后一次 publish_content 工具调用
+                        publish_call = publish_calls[-1]
 
-                    if publish_call and publish_call.get('arguments'):
-                        # 从工具调用参数中提取实际发布的内容
-                        args = publish_call['arguments']
-                        content_data = {
-                            'title': args.get('title', f'关于{topic}的精彩内容'),
-                            'content': args.get('content', ''),
-                            'tags': args.get('tags', [topic]),
-                            'images': args.get('images', [])
-                        }
-                        logger.info(f"成功从 publish_content 参数中提取内容数据")
+                        if publish_call and publish_call.get('arguments'):
+                            # 从工具调用参数中提取实际发布的内容
+                            args = publish_call['arguments']
+                            # 只更新有值的字段，保留 step2 中的内容作为备选
+                            if 'title' in args and args['title']:
+                                content_data['title'] = args['title']
+                            if 'content' in args and args['content']:
+                                content_data['content'] = args['content']
+                            if 'tags' in args and args['tags']:
+                                content_data['tags'] = args['tags']
+                            if 'images' in args and args['images']:
+                                content_data['images'] = args['images']
+                            logger.info(f"成功从 publish_content 参数中提取内容数据")
+                        else:
+                            logger.warning("未找到 publish_content 工具调用或参数为空，将使用 step2 中的内容")
                     else:
-                        logger.warning("未找到 publish_content 工具调用或参数为空")
+                        logger.warning("未找到 publish_content 工具调用，将使用 step2 中的内容")
                 except Exception as e:
                     logger.error(f"从工具调用参数中提取内容失败: {e}")
+
+            # 检查发布步骤（step3）是否成功
+            publish_success = step3_result.get('publish_success', False) if step3_result else False
+
+            # 如果发布失败，返回成功结果，包含生成的内容和发布错误信息
+            if not publish_success:
+                logger.error("内容发布失败")
+                publish_error = step3_result.get('publish_error', '') if step3_result else ''
+
+                return {
+                    'success': True,
+                    'title': content_data.get('title', ''),
+                    'content': content_data.get('content', ''),
+                    'tags': content_data.get('tags', []),
+                    'images': content_data.get('images', []),
+                    'publish_status': '发布失败',
+                    'publish_error': publish_error,
+                    'full_results': results
+                }
 
             return {
                 'success': True,
@@ -1380,6 +1411,18 @@ class ContentGenerator:
 
         except Exception as e:
             logger.error(f"生成和发布失败: {e}", exc_info=True)
+            # 即使发生异常，也要尝试返回已生成的内容
+            if 'content_data' in locals():
+                return {
+                    'success': True,
+                    'title': content_data.get('title', ''),
+                    'content': content_data.get('content', ''),
+                    'tags': content_data.get('tags', []),
+                    'images': content_data.get('images', []),
+                    'publish_status': '生成失败',
+                    'publish_error': str(e),
+                    'full_results': results if 'results' in locals() else []
+                }
             return {
                 'success': False,
                 'error': str(e)

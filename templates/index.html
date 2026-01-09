@@ -281,11 +281,18 @@
                     <h2 id="res-title" class="res-title"></h2>
                     <div class="res-meta">
                         <span id="res-time" class="tag-glass"></span>
+                        <div id="res-status"></div>
                         <div id="res-tags" class="tags-wrapper"></div>
                     </div>
                     <div id="res-images" class="images-grid"></div>
                     <div id="res-content" class="article-content"></div>
                 </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-primary-glass" onclick="closeModal()">关闭</button>
+                <button id="res-retry-btn" class="btn-primary-glass" onclick="retryPublish()" style="display: none;">
+                    <span class="icon">🔄</span> 重试发布
+                </button>
             </div>
         </div>
     </div>
