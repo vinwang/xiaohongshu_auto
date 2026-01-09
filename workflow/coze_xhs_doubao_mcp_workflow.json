@@ -1,0 +1,154 @@
+{
+  "name": "XHS Doubao+MCP Workflow (Coze)",
+  "description": "扣子（Coze）工作流：输入小红书链接→抓取→豆包重写→豆包生成图片→人工确认→MCP发布",
+  "version": "1.0.0",
+  "nodes": [
+    {
+      "id": "input",
+      "type": "input",
+      "name": "输入链接",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "note_url": {"type": "string", "title": "小红书笔记链接"}
+        },
+        "required": ["note_url"]
+      }
+    },
+    {
+      "id": "fetch",
+      "type": "http",
+      "name": "抓取HTML",
+      "config": {
+        "method": "GET",
+        "url": "{{note_url}}",
+        "timeout": 30000
+      }
+    },
+    {
+      "id": "parse",
+      "type": "code",
+      "name": "解析标题/正文/图片",
+      "language": "javascript",
+      "code": "const html = inputs.fetch.body || '';\nfunction extract(regex){ const m = String(html).match(regex); return m? m[1] : ''; }\nconst title = extract(/<title>(.*?)<\\/title>/i) || extract(/id=\"detail-title\">([^<]+)/i);\nconst body = extract(/<div[^>]*class=\"note-content[^\"]*\"[^>]*>([\s\S]*?)<\\/div>/i) || extract(/id=\"detail-desc\">([\s\S]*?)<\\/div>/i);\nconst imgMatches = Array.from(String(html).matchAll(/<img[^>]*src=\"([^\"]+)\"/gi)).map(m=>m[1]).slice(0,6);\noutputs.note = { title, body, images: imgMatches };"
+    },
+    {
+      "id": "rewrite",
+      "type": "llm",
+      "name": "豆包重写文案",
+      "provider": "doubao",
+      "config": {
+        "apiKey": "${DOUBAO_API_KEY}",
+        "endpoint": "${DOUBAO_CHAT_URL:https://api.doubao.com/v1/chat/completions}",
+        "model": "${DOUBAO_CHAT_MODEL:doubao-1-5}",
+        "prompt": "你是小红书运营文案助手。\n将以下正文重写为中性专业口吻，长度与原文相近（±10%），保留品牌/SKU词且不违反平台规范。\n标题≤20字，正文≤1000字。\n\n标题：{{note.title}}\n正文：{{note.body}}"
+      }
+    },
+    {
+      "id": "mapText",
+      "type": "code",
+      "name": "结构化重写结果",
+      "language": "javascript",
+      "code": "const text = inputs.rewrite.output || '';\nconst lines = String(text).trim().split(/\n+/);\noutputs.text = { title: lines[0].slice(0,20), content: lines.slice(1).join('\n').slice(0,1000) };"
+    },
+    {
+      "id": "genImages",
+      "type": "http",
+      "name": "豆包生成图片",
+      "config": {
+        "method": "POST",
+        "url": "${DOUBAO_IMAGE_URL:https://api.doubao.com/v1/images/generations}",
+        "headers": {"Authorization": "Bearer ${DOUBAO_API_KEY}", "Content-Type": "application/json"},
+        "body": {
+          "model": "${DOUBAO_IMAGE_MODEL:doubao-image-1-5}",
+          "prompt": "将以下主题重绘为清新自然、极简现代风格图：{{text.title}}。生成4张，保持统一风格。",
+          "n": 4,
+          "size": "1024x1024"
+        }
+      }
+    },
+    {
+      "id": "saveImages",
+      "type": "code",
+      "name": "保存图片到本地",
+      "language": "javascript",
+      "code": "const fs = require('fs'); const path = require('path');\nconst outDir = process.env.OUTPUT_IMG_DIR || '/home/user/workspace/output/images';\nif (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });\nconst arr = (inputs.genImages.body?.data) || [];\nconst images = [];\narr.forEach((img, i)=>{ const b64 = img.b64_json || img.base64; if (b64){ const file = path.join(outDir, `doubao_${Date.now()}_${i}.png`); fs.writeFileSync(file, Buffer.from(b64, 'base64')); images.push(file);} else if (img.url){ images.push(img.url);} });\noutputs.assets = { images };"
+    },
+    {
+      "id": "humanConfirm",
+      "type": "human",
+      "name": "人工确认发布",
+      "config": {
+        "inputs": ["text", "assets"],
+        "ui": {
+          "title": "确认发布到小红书",
+          "fields": [
+            {"key": "title", "type": "text", "label": "标题", "default": "{{text.title}}"},
+            {"key": "content", "type": "textarea", "label": "正文", "default": "{{text.content}}"},
+            {"key": "images", "type": "list", "label": "图片路径", "default": "{{assets.images}}"}
+          ],
+          "actions": ["确认发布", "仅保存素材"]
+        }
+      }
+    },
+    {
+      "id": "publish",
+      "type": "http",
+      "name": "MCP发布",
+      "config": {
+        "method": "POST",
+        "url": "http://localhost:18060/mcp",
+        "headers": {"Content-Type": "application/json"},
+        "body": {
+          "jsonrpc": "2.0",
+          "id": 1,
+          "method": "tools/call",
+          "params": {
+            "name": "publish_content",
+            "arguments": {
+              "title": "{{humanConfirm.title}}",
+              "content": "{{humanConfirm.content}}",
+              "images": "{{humanConfirm.images}}"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "result",
+      "type": "output",
+      "name": "输出结果",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "status": {"type": "string"},
+          "message": {"type": "string"}
+        }
+      },
+      "mapping": {
+        "status": "ok",
+        "message": "已发布或已入队"
+      }
+    }
+  ],
+  "edges": [
+    {"from": "input", "to": "fetch"},
+    {"from": "fetch", "to": "parse"},
+    {"from": "parse", "to": "rewrite"},
+    {"from": "rewrite", "to": "mapText"},
+    {"from": "mapText", "to": "genImages"},
+    {"from": "genImages", "to": "saveImages"},
+    {"from": "saveImages", "to": "humanConfirm"},
+    {"from": "humanConfirm", "to": "publish", "condition": "action == '确认发布'"},
+    {"from": "publish", "to": "result"},
+    {"from": "humanConfirm", "to": "result", "condition": "action == '仅保存素材'"}
+  ],
+  "env": {
+    "DOUBAO_API_KEY": "PUT_YOUR_KEY",
+    "DOUBAO_CHAT_URL": "https://api.doubao.com/v1/chat/completions",
+    "DOUBAO_CHAT_MODEL": "doubao-1-5",
+    "DOUBAO_IMAGE_URL": "https://api.doubao.com/v1/images/generations",
+    "DOUBAO_IMAGE_MODEL": "doubao-image-1-5",
+    "OUTPUT_IMG_DIR": "/home/user/workspace/output/images"
+  }
+}
