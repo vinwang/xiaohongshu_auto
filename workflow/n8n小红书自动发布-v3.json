@@ -1,0 +1,986 @@
+{
+  "name": "小红书｜矩阵号自动发布",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const raw = ($json.body?.chatInput || $json.chatInput || $json.query?.chatInput || \"\").trim();\n\n// 0️⃣ 尝试 URL 解码 (仅当检测到编码字符时)\ntry {\n  if (/%[0-9a-fA-F]{2}/.test(raw)) {\n    const decoded = decodeURIComponent(raw);\n    if (decoded !== raw) {\n       console.log(\"Decoded input:\", decoded);\n       // 只有解码成功才覆盖，防止意外\n       // (注意：这里直接用 decodeURIComponent 后的值通常是没问题的)\n       // raw = decoded; \n       // 修正：decodeURIComponent 对 POST body 通常不需要，除非是 raw encoded\n       // 但为了一致性，如果用户误传了 encoded 串也可解\n    }\n  }\n} catch (e) {}\n\nconsole.log(\"Final Input:\", raw);\n\nlet data = {};\n\n// 1️⃣ 尝试 JSON 解析\ntry {\n  const parsed = JSON.parse(raw);\n  if (typeof parsed === \"object\") {\n    data = parsed;\n  }\n} catch (e) {\n  // 非 JSON，继续走自然语言解析\n}\n\n// 2️⃣ 自然语言解析工具函数\nfunction pick(label) {\n  const reg = new RegExp(\n    `${label}\\\\s*[：:]\\s*([^。；;\\\\n]+)`,\n    \"i\"\n  );\n  const m = raw.match(reg);\n  return m ? m[1].trim() : \"\";\n}\n\n// 3️⃣ topic / subject\nif (!data.topic && !data.subject) {\n  data.topic = pick(\"主题\") || pick(\"选题\");\n}\nif (!data.topic) {\n  data.topic = raw.slice(0, 30);\n}\n\n// 4️⃣ accounts\nif (!data.accounts) {\n  const accRaw = pick(\"账号\");\n  if (accRaw) {\n    data.accounts = accRaw\n      .replace(/，/g, \",\")\n      .split(\",\")\n      .map(s => s.trim())\n      .filter(Boolean);\n  } else {\n    data.accounts = [\"你的效率闺蜜\"];\n  }\n}\n\n// 5️⃣ word_count\nif (!data.word_count) {\n  const wcMatch = raw.match(/(\\d{2,4})\\s*字/);\n  data.word_count = wcMatch ? Number(wcMatch[1]) : 600;\n}\n\n// 6️⃣ context\nif (!data.context) {\n  data.context = pick(\"背景\") || pick(\"说明\") || \"\";\n}\n\n// 7️⃣ 输出统一结构\nreturn [\n  {\n    subject: data.topic,\n    accounts: data.accounts,\n    word_count: data.word_count,\n    context: data.context\n  }\n];\n"
+      },
+      "id": "58c912a5-1719-4eff-a2d4-fdcc7b90a1a6",
+      "name": "输入规范化",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1392,
+        -224
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=你是一位资深的小红书内容创作专家。\n\n【你的任务】\n根据用户的内容需求，**严格填充下面的 JSON 结构**，不得输出任何多余文字。\n\n====================\n【输入信息】\n用户需求：\n主题：{{ $json.subject }}\n字数：{{ $json.word_count }}\n背景：{{ $json.context }}\n\n====================\n【标题创作技巧（请参照以下规则）】：\n\n1. 采用二极管标题法进行创作：\n   1.1 基本原理：本能喜欢最省力法则和及时享受；动物基本驱动力是追求快乐和逃避痛苦，由此衍生出2个刺激：正刺激、负刺激。\n   1.2 标题公式：\n      - 正面刺激：产品或方法+只需1秒（短期）+便可开挂（逆天效果）\n      - 负面刺激：你不X+绝对会后悔（天大损失）+（紧迫感）\n      （利用人们厌恶损失和负面偏误的心理，使人们在面对负面消息时更加敏感）\n\n2. 使用具有吸引力的标题：\n   2.1 使用标点符号，创造紧迫感和惊喜感 (如：！、？、…等)\n   2.2 采用具有挑战性和悬念的表述\n   2.3 利用正面刺激和负面刺激\n   2.4 融入热点话题和实用工具\n   2.5 描述具体的成果和效果\n   2.6 使用emoji表情符号，增加标题的活力\n\n3. 从小红书搜索爆款关键词top100,并选择1-2个使用\n\n4. 控制字数在20字以内，文本尽量简短，以口语化的表达方式，拉近与读者的距离\n\n5.只完成【标题与大纲】：\n  5.1 生成5个标题（<20字，二极管标题法）\n  5.2 给出最终标题，字数小于20字\n  5.3 输出正文大纲\n  5.4 给出5个标签\n\n6.生成的内容用中文，可以有一些专业英文名词，但不能全是英文。\n\n====================\n**输出格式必须只输出下面 JSON，不得添加解释、注释、markdown、换行说明**\n{\n  \"titles\": [],\n  \"final_title\": \"\",\n  \"content_outline\": [],\n  \"tags\": [],\n  \"subject\": \"\",\n  \"context\": \"\",\n  \"word_count\": 0\n}",
+        "hasOutputParser": true
+      },
+      "id": "f8db4dc8-9de6-4e3a-8e02-03cdaa9f07ad",
+      "name": "选题结构生成",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.6,
+      "position": [
+        -1264,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 清理并解析 JSON 输出\nconst raw = $json.response || $json.output || $json.text || '';\n\n// 移除可能的 markdown 代码块标记\nlet cleaned = String(raw)\n  .replace(/^```json\\s*/i, '')\n  .replace(/^```\\s*/i, '')\n  .replace(/```\\s*$/i, '')\n  .trim();\n\n// 解析 JSON\ntry {\n  const parsed = JSON.parse(cleaned);\n  return [{ json: parsed }];\n} catch (e) {\n  // 如果解析失败，尝试提取 JSON 部分\n  const match = cleaned.match(/\\{[\\s\\S]*\\}/);\n  if (match) {\n    try {\n      const parsed = JSON.parse(match[0]);\n      return [{ json: parsed }];\n    } catch (e2) {\n      throw new Error('JSON 解析失败: ' + e2.message + '\\n原始内容: ' + raw);\n    }\n  }\n  throw new Error('无法找到有效的 JSON 内容\\n原始内容: ' + raw);\n}"
+      },
+      "id": "a970b234-c4b0-4c79-acc0-0ed521643fcd",
+      "name": "JSON解析器",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -928,
+        -272
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=你是一位资深的小红书内容创作专家，将根据用户的内容需求，循以下规则执行任务。\n用户需求：\n标题：{{ $json.final_title}}\n主题：{{$json.subject}}\n大纲：{{$json.content_outline}}\n背景：{{$json.context}}\n\n## 正文创作规则：\n*注意：你不需要用到背景信息中的全部内容，只需要利用好能够服务写作主题的内容。首先思考哪部分内容对于写作主题是有帮助的，再输出文案*\n1. 风格匹配：从主题{{$json.subject}}、正文{{$json.content_outline}}明确赛道、受众、卖点及风格偏好，匹配对应风格（生活类→轻松/亲切/愉快；职场干货类→严肃/真诚/建议；情感成长类→温馨/沉思/鼓励；活动促销类→激动/热情/欢乐）。开篇钩子需为与受众强相关的高频痛点问题或近期平台热议的争议话题，需能精准击中受众需求，确保开篇3秒内抓住受众注意力。\n2. 内容要求：需融入由官方提供的小红书近30天搜索量top500且与主题高度相关的热门关键词包中的内容，结尾设互动（开放式问题/投票/晒图），结构清晰（吸睛标题、痛点引入、核心内容、互动引导），口语化表达，字数50–{{ $json.word_count }}字。\n3. 严格围绕大纲{{$json.content_outline}}创作，背景信息限定为与主题{{$json.subject}}直接相关的行业数据、用户普遍认知事实，仅在补充说明核心内容时按需选用，不得引入无关信息。\n4. 提供图片搭配建议：根据文案主题给出图片风格（如清新/复古/科技感）、构图技巧（对角线/对称/特写）、色彩搭配及必备元素（产品图/场景图/对比图）的具体建议，不要出现emoji等特殊字符，保持清爽，直接给出风格，不要出现\"小红书封面\"这种提示。\n\n输出 Markdown：\n## 标题\n{{$json.final_title}}\n\n## 正文\n（正文）\n## 图片建议\n（图片建议）\n\n## 标签\n{{$json.tags.join(\" \")}}"
+      },
+      "id": "f0d73484-2d09-440f-acf1-e95bebb1599e",
+      "name": "正文生成",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.6,
+      "position": [
+        -784,
+        -16
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json.output || $input.first().json.text;\nconst title = raw.match(/## 标题([\\s\\S]*?)## 正文/)?.[1]?.trim() || \"\";\nconst content = raw.match(/## 正文([\\s\\S]*?)## 图片建议/)?.[1]?.trim() || \"\";\nconst images = raw.match(/## 图片建议([\\s\\S]*?)## 标签/)?.[1]?.trim() || \"\";\nconst tags = raw.match(/## 标签([\\s\\S]*)$/)?.[1]?.trim().split(/\\s+/) || [];\n\nreturn [{ title, content, tags, images }];"
+      },
+      "id": "e1c062f9-fbc1-4803-b15d-06a4a42df252",
+      "name": "正文结构拆分",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -544,
+        -256
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=你是小红书配图专家，擅长把【文章观点】转化为【对应画面】。\n\n标题：{{$json.title}}\n\n正文摘要：\n{{$json.content}}\n\n请严格按以下步骤思考，但【不要输出思考过程】：\n\n步骤1：从正文中提炼 2–3 个【明确、可被画面表达的核心观点】\n步骤2：为每个观点生成一条【内容图 Prompt】，紧扣标题和正文的观点\n步骤3：生成 1 条【封面图 Prompt】，紧扣标题要表达的观点\n\n生成规则：\n1.{{$json.images}}\n2.不要出现emoji等特殊字符\n3.不要生成平台logo，水印\n\n\n只输出严格 JSON，不要解释：\n\n{\n  \"cover_image\": \"\",\n  \"content_images\": [],\n  \"content_images_count\": 0\n}",
+        "hasOutputParser": true
+      },
+      "id": "63d35b0c-d4fa-417f-88ed-97905c9436f7",
+      "name": "配图Prompt生成",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.6,
+      "position": [
+        -400,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 清理并解析配图 JSON 输出\nconst raw = $json.response || $json.output || $json.text || '';\n\n// 移除可能的 markdown 代码块标记\nlet cleaned = String(raw)\n  .replace(/^```json\\s*/i, '')\n  .replace(/^```\\s*/i, '')\n  .replace(/```\\s*$/i, '')\n  .trim();\n\n// 解析 JSON\ntry {\n  const parsed = JSON.parse(cleaned);\n  return [{ json: parsed }];\n} catch (e) {\n  // 如果解析失败，尝试提取 JSON 部分\n  const match = cleaned.match(/\\{[\\s\\S]*\\}/);\n  if (match) {\n    try {\n      const parsed = JSON.parse(match[0]);\n      return [{ json: parsed }];\n    } catch (e2) {\n      throw new Error('配图JSON解析失败: ' + e2.message + '\\n原始内容: ' + raw);\n    }\n  }\n  throw new Error('无法找到有效的配图JSON内容\\n原始内容: ' + raw);\n}"
+      },
+      "id": "b05a69d9-ef9b-47a8-b171-5c45267ff718",
+      "name": "配图JSON解析器",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -144,
+        -176
+      ]
+    },
+    {
+      "parameters": {
+        "functionCode": "return $json.accounts.map(account => ({\n  account,\n  title: $json.title,\n  content: $json.content,\n  tags: $json.tags,\n  cover_image: $json.cover_image,\n  content_images: $json.content_images\n}));"
+      },
+      "id": "027cd630-15e7-4d9b-9d5c-4504f2755037",
+      "name": "矩阵账号拆分",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [
+        944,
+        -688
+      ]
+    },
+    {
+      "parameters": {
+        "text": "=账号：{{ $('输入规范化').item.json.accounts }}\n\n原始正文：\n{{ $('正文结构拆分').item.json.content }}\n\n请在不改变结构的前提下做差异化改写，只输出正文内容。",
+        "options": {}
+      },
+      "id": "ee3ab763-4260-4c6a-9bb7-508d6871a515",
+      "name": "矩阵差异化改写Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1,
+      "position": [
+        1152,
+        -752
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://ark.cn-beijing.volces.com/api/v3/images/generations",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n    \"model\": \"doubao-seedream-4-5-251128\",\n    \"prompt\": \"{{ $json.cover_image }}\\n\\n生成要求（必须严格遵守）：\\n- 不出现乱码、不出现假字\\n- 无任何平台标识、无角标、无水印、无Logo\\n- 充满科技质感，浅色风格\\n- 使用清晰、具体、可被画面表达的描述\",\n    \"response_format\": \"url\",\n    \"size\": \"1728x2304\",\n    \"watermark\": false\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        64,
+        -160
+      ],
+      "id": "367d3b8e-b697-422e-9597-a8d88bfd1319",
+      "name": "生成封面图",
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "LbEnP8EQIlTtjOR6",
+          "name": "火山-生图-Bearer Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://ark.cn-beijing.volces.com/api/v3/images/generations",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n    \"model\": \"doubao-seedream-4-5-251128\",\n    \"prompt\": \"{{ $json.content_images }}\\n\\n生成{{ $json.content_images_count }}张\\n\\n生成要求（必须严格遵守）：\\n- 图片中不出现乱码、假字、不可识别字符等错误内容\\n- 图片中无任何平台标识、角标、水印、Logo等元素\\n- 整体风格必须为充满科技质感的浅色风格\\n- 所有描述必须转化为清晰、具体、可视觉化的画面内容\\n- 使用视觉隐喻（图标、构图、色彩）代替文字\",\n    \"sequential_image_generation\": \"auto\",\n    \"sequential_image_generation_options\": {\"max_images\":4},\n    \"response_format\": \"url\",\n    \"size\": \"1728x2304\",\n    \"watermark\": false\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        64,
+        64
+      ],
+      "id": "c8851d32-6ec4-461d-b65a-08649c3954ac",
+      "name": "内容图生成",
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "LbEnP8EQIlTtjOR6",
+          "name": "火山-生图-Bearer Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "doubao-seed-1-6-251015",
+          "mode": "list",
+          "cachedResultName": "doubao-seed-1-6-251015"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        1120,
+        -432
+      ],
+      "id": "3fdbaec2-2a77-4914-9bf8-be9134411402",
+      "name": "火山-doubao",
+      "credentials": {
+        "openAiApi": {
+          "id": "3iRvcAcvDVdKLy4T",
+          "name": "火山引擎-文本"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "endpointUrl": "http://47.109.91.65:18060/mcp",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.mcpClientTool",
+      "typeVersion": 1.2,
+      "position": [
+        1264,
+        -432
+      ],
+      "id": "9ade8a5f-5b77-4667-89b2-69309ad9569d",
+      "name": "MCP Client"
+    },
+    {
+      "parameters": {
+        "numberInputs": 3
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        400,
+        -48
+      ],
+      "id": "09f78a5b-859a-4cd5-a690-86e7eecbed3e",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "const allItems = $input.all();\n\nconst textItem = allItems[0]?.json || {};\nconst coverItem = allItems[1]?.json || {};\nconst contentImageItem = allItems[2]?.json || {};\n\nconst title = textItem.title || \"\";\nconst content = textItem.content || \"\";\n\n// ===== 标签规范化（重点）=====\nlet tagsRaw = textItem.tags || [];\nlet tags = [];\n\n// 情况 1：tags 是字符串 \"#a,#b\"\nif (typeof tagsRaw === \"string\") {\n  tags = tagsRaw\n    .split(\",\")\n    .map(t => t.trim())\n    .filter(Boolean);\n}\n\n// 情况 2：tags 是数组 [\"a\", \"#b\"]\nif (Array.isArray(tagsRaw)) {\n  tags = tagsRaw.map(t => String(t).trim()).filter(Boolean);\n}\n\n// 统一补 #\ntags = tags.map(t => (t.startsWith(\"#\") ? t : `#${t}`));\n\n// ===== 图片合并 =====\nconst images = [\n  coverItem?.data?.[0]?.url,\n  ...(contentImageItem?.data || []).map(i => i.url)\n].filter(Boolean);\n\n// ===== 输出 =====\nreturn [\n  {\n    json: {\n      title,\n      content,\n      tags,              // 数组形式（推荐）\n      images\n    }\n  }\n];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        640,
+        -16
+      ],
+      "id": "0f58a93e-f843-4605-88e5-638f6adf9b0c",
+      "name": "组装文案"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "6982e63d-f2c9-4135-b90c-bb561b94462f",
+              "name": "title",
+              "value": "={{ $json.title }}",
+              "type": "string"
+            },
+            {
+              "id": "473348dd-ad42-442a-84ec-af7ea9d34399",
+              "name": "content",
+              "value": "={{ $json.content }}",
+              "type": "string"
+            },
+            {
+              "id": "132bcd83-70a5-4d87-ad81-5d3282363a2d",
+              "name": "tags",
+              "value": "={{ $json.tags }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        64,
+        -384
+      ],
+      "id": "c4c64520-afb8-443d-a561-04c39d040875",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "endpointUrl": "http://47.109.91.65:18060/mcp",
+        "tool": {
+          "__rl": true,
+          "value": "publish_content",
+          "mode": "list",
+          "cachedResultName": "publish_content"
+        },
+        "parameters": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "images": "={{ $('✅确认发布').first().json.images }}",
+            "content": "={{ $('✅确认发布').first().json.content }}",
+            "title": "={{ $('✅确认发布').first().json.title }}",
+            "tags": "={{ $('✅确认发布').first().json.tags }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "content",
+              "displayName": "content",
+              "defaultMatch": false,
+              "required": true,
+              "display": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "images",
+              "displayName": "images",
+              "defaultMatch": false,
+              "required": true,
+              "display": true,
+              "type": "array",
+              "defaultValue": "[\n  \"string\"\n]",
+              "removed": false
+            },
+            {
+              "id": "tags",
+              "displayName": "tags",
+              "defaultMatch": false,
+              "required": false,
+              "display": true,
+              "type": "array",
+              "defaultValue": "[\n  \"string\"\n]",
+              "removed": false
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "defaultMatch": false,
+              "required": true,
+              "display": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "convertToBinary": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1,
+      "position": [
+        1808,
+        -16
+      ],
+      "id": "0594a013-da10-46f3-9b2a-76eb79f56234",
+      "name": "xhs_mcp"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "hqQlHmeYfivx3ByD",
+          "mode": "list",
+          "cachedResultName": "notes",
+          "cachedResultUrl": "/projects/ldZnw1KjOTfKmBAE/datatables/hqQlHmeYfivx3ByD"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "=title",
+              "keyValue": "={{ $('✅确认发布').first().json.title }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "title": "={{ $('✅确认发布').first().json.title }}",
+            "content": "={{ $('✅确认发布').first().json.content }}",
+            "tags": "={{ $('✅确认发布').first().json.tags.join(\",\") }}",
+            "images": "={{ $('✅确认发布').first().json.images.join(\",\") }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "content",
+              "displayName": "content",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "tags",
+              "displayName": "tags",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "images",
+              "displayName": "images",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        1696,
+        176
+      ],
+      "id": "fb3224fe-6996-49de-b294-04877fd75d0c",
+      "name": "Upsert row(s)"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\n// 构造图片 HTML\nconst imagesHtml = data.images\n  .map(url => `<img src=\"${url}\" class=\"slide-img\" />`)\n  .join('');\n  \n// 构造标签 HTML\nconst tagsHtml = Array.isArray(data.tags) ? data.tags.join(' ') : data.tags;\n\n// 优先使用 n8n 注入的官方 Resume URL\nconst n8nResumeUrl = $execution.resumeUrl || '';\n\n// 构造完整 HTML 页面\nconst html = `<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n  <meta charset=\"UTF-8\" />\n  <title>小红书发布预览</title>\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n\n  <style>\n    body {\n      margin: 0;\n      padding: 20px;\n      background: #f6f6f6;\n      font-family: -apple-system, BlinkMacSystemFont, \"PingFang SC\", Arial;\n    }\n\n    .card {\n      max-width: 420px;\n      margin: 0 auto;\n      background: #fff;\n      border-radius: 14px;\n      overflow: hidden;\n      box-shadow: 0 10px 28px rgba(0,0,0,0.08);\n    }\n\n    /* Carousel Container */\n    .carousel-wrapper {\n      position: relative;\n      background: #000;\n    }\n\n    .images {\n      display: flex;\n      overflow-x: auto;\n      scroll-snap-type: x mandatory;\n      -webkit-overflow-scrolling: touch;\n      scrollbar-width: none; /* Firefox */\n      scroll-behavior: smooth;\n    }\n    .images::-webkit-scrollbar {\n      display: none; /* Chrome/Safari */\n    }\n\n    .images img {\n      width: 100%;\n      height: auto;\n      flex-shrink: 0;\n      scroll-snap-align: center;\n      aspect-ratio: 3/4;\n      object-fit: contain;\n      display: block;\n    }\n\n    /* Navigation Arrows */\n    .nav-btn {\n        position: absolute;\n        top: 50%;\n        transform: translateY(-50%);\n        background: rgba(255, 255, 255, 0.2);\n        border: none;\n        border-radius: 50%;\n        width: 32px;\n        height: 32px;\n        cursor: pointer;\n        display: flex;\n        align-items: center;\n        justify-content: center;\n        color: white;\n        font-size: 18px;\n        backdrop-filter: blur(4px);\n        transition: background 0.3s;\n        z-index: 10;\n    }\n    .nav-btn:hover {\n        background: rgba(255, 255, 255, 0.4);\n    }\n    .nav-prev {\n        left: 10px;\n    }\n    .nav-next {\n        right: 10px;\n    }\n\n    .content {\n      padding: 16px;\n    }\n\n    h1 {\n      font-size: 18px;\n      margin: 0 0 12px;\n      line-height: 1.4;\n    }\n\n    .text {\n      font-size: 14px;\n      line-height: 1.7;\n      white-space: pre-wrap;\n    }\n\n    .tags {\n      margin-top: 12px;\n      color: #999;\n      font-size: 13px;\n    }\n\n    .actions {\n      padding: 16px;\n      display: flex;\n      gap: 12px;\n      border-top: 1px solid #eee;\n    }\n\n    .btn {\n      display: block;\n      flex: 1;\n      padding: 12px;\n      border: none;\n      border-radius: 8px;\n      font-size: 15px;\n      font-weight: 500;\n      cursor: pointer;\n      transition: all 0.3s;\n      text-decoration: none;\n      text-align: center;\n    }\n\n    .btn-confirm {\n      background: #ff2442;\n      color: white;\n    }\n\n    .btn-confirm:hover {\n      background: #e02038;\n    }\n\n    .btn-cancel {\n      background: #f0f0f0;\n      color: #666;\n    }\n\n    .btn-cancel:hover {\n      background: #e0e0e0;\n    }\n\n    .status {\n      padding: 12px;\n      text-align: center;\n      font-size: 13px;\n      color: #666;\n    }\n  </style>\n</head>\n\n<body>\n  <div class=\"card\">\n\n    <div class=\"carousel-wrapper\">\n        <div class=\"images\" id=\"imagesContainer\">\n          ${imagesHtml}\n        </div>\n        <!-- Navigation Arrows -->\n        <button class=\"nav-btn nav-prev\" onclick=\"scrollImages(-1)\">❮</button>\n        <button class=\"nav-btn nav-next\" onclick=\"scrollImages(1)\">❯</button>\n    </div>\n\n    <div class=\"content\">\n      <h1>${data.title}</h1>\n      <div class=\"text\">${data.content}</div>\n      <div class=\"tags\">${tagsHtml}</div>\n    </div>\n\n    <div class=\"actions\">\n      <button class=\"btn btn-cancel\" onclick=\"handleAction('cancel')\">❌ 取消发布</button>\n      <button class=\"btn btn-confirm\" onclick=\"handleAction('confirm')\">✅ 确认发布</button>\n    </div>\n    <div class=\"status\" id=\"status\">👀 请确认内容无误后点击按钮</div>\n  </div>\n\n  <script>\n    const serverResumeUrl = \"${n8nResumeUrl}\";\n    let resumeUrl = serverResumeUrl;\n    if (!resumeUrl) {\n        console.warn('Fallback URL used');\n        const isTest = window.location.pathname.includes('/webhook-test/');\n        const urlPrefix = isTest ? '/webhook-test/' : '/webhook/';\n        resumeUrl = window.location.origin + urlPrefix + 'wait-publish-confirm';\n    }\n\n    // Image Carousel Logic\n    function scrollImages(direction) {\n        const container = document.getElementById('imagesContainer');\n        const scrollAmount = container.clientWidth;\n        container.scrollBy({ left: direction * scrollAmount, behavior: 'smooth' });\n    }\n\n    async function handleAction(action) {\n      const status = document.getElementById('status');\n      const buttons = document.querySelectorAll('.btn');\n      buttons.forEach(btn => btn.disabled = true);\n      \n      if (action === 'cancel') {\n        status.textContent = '❌ 已取消发布';\n        status.style.color = '#999';\n        return;\n      }\n      status.textContent = '⏳ 正在发布...';\n      status.style.color = '#ff2442';\n      \n      try {\n        // GET request as requested\n        const response = await fetch(resumeUrl + '?action=confirm', {\n          method: 'GET',\n          headers: { 'Accept': 'application/json' }\n        });\n        \n        if (response.ok) {\n          status.textContent = '✅ 发布成功！窗口将自动关闭';\n          status.style.color = '#52c41a';\n          setTimeout(() => window.close(), 3000);\n        } else {\n          const text = await response.text().catch(() => '');\n          throw new Error('发布失败 ' + response.status + ' ' + text);\n        }\n      } catch (error) {\n        console.error(error);\n        status.textContent = '❌ 发布失败: ' + error.message;\n        status.style.color = '#f5222d';\n        buttons.forEach(btn => btn.disabled = false);\n      }\n    }\n  </script>\n</body>\n</html>`;\n\nreturn { html };"
+      },
+      "id": "7c05a651-ca92-4fbd-a280-8509595ff3a4",
+      "name": "生成HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        16
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html"
+              }
+            ]
+          }
+        }
+      },
+      "id": "f9cfaf39-5daf-4303-9e23-f58764ba7bdd",
+      "name": "发送预览到浏览器",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        1280,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// ⚠️ 确认发布检查点 ⚠️\n// \n// 📋 发布前请确认：\n// 1. 在\"HTML预览\"节点查看生成的内容\n// 2. 确认标题、正文、标签、图片都正确无误\n// 3. 确认后，此节点会将正确的JSON数据传递给发布流程\n// \n// 💡 此节点会透传原始数据，不做任何修改\n\nconst data = $input.first().json;\n\n// 验证必需字段\nif (!data.title || !data.content || !data.images || data.images.length === 0) {\n  throw new Error('❌ 数据不完整：缺少必需字段（title/content/images）');\n}\n\n// 输出日志供确认\nconsole.log('📋 准备发布的内容：');\nconsole.log('标题:', data.title);\nconsole.log('正文长度:', data.content.length, '字');\nconsole.log('标签:', data.tags);\nconsole.log('图片数量:', data.images.length);\n\n// 透传原始数据\nreturn [$input.first().json];"
+      },
+      "id": "2e07b65a-d204-40ab-ad32-d405bfd2c7db",
+      "name": "✅确认发布",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        864,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "options": {}
+      },
+      "id": "ca6fea9b-6a9f-4c09-a6f9-7c65fc3f1027",
+      "name": "⏳等待用户确认",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1456,
+        -16
+      ],
+      "webhookId": "wait-publish-confirm"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "doubao-seed-1-8-251228",
+          "mode": "list",
+          "cachedResultName": "doubao-seed-1-8-251228"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        -784,
+        240
+      ],
+      "id": "d3f1e620-73a8-4c26-bf52-b5c4bfbaf599",
+      "name": "火山-db1.8",
+      "credentials": {
+        "openAiApi": {
+          "id": "3iRvcAcvDVdKLy4T",
+          "name": "火山引擎-文本"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {
+          "responseMode": "responseNodes"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        -1920,
+        -176
+      ],
+      "id": "227b560c-d484-411c-90fb-5cb0464ed74e",
+      "name": "When chat message received",
+      "webhookId": "ca7d67c3-10ae-47ee-a5b3-645a6e5a503d"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "doubao-seed-1-8-251228",
+          "mode": "list",
+          "cachedResultName": "doubao-seed-1-8-251228"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        -1264,
+        176
+      ],
+      "id": "27de2d86-1c39-488a-8bf5-93c8032d29e7",
+      "name": "火山-db1-8",
+      "credentials": {
+        "openAiApi": {
+          "id": "3iRvcAcvDVdKLy4T",
+          "name": "火山引擎-文本"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "doubao-seed-1-8-251228",
+          "mode": "list",
+          "cachedResultName": "doubao-seed-1-8-251228"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        -400,
+        208
+      ],
+      "id": "9524639c-16fd-42a8-88f2-bfe167ce2066",
+      "name": "火山-db18",
+      "credentials": {
+        "openAiApi": {
+          "id": "3iRvcAcvDVdKLy4T",
+          "name": "火山引擎-文本"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "html": "<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n  <meta charset=\"UTF-8\" />\n  <title>小红书发布预览</title>\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n\n  <style>\n    body {\n      margin: 0;\n      padding: 20px;\n      background: #f6f6f6;\n      font-family: -apple-system, BlinkMacSystemFont, \"PingFang SC\", Arial;\n    }\n\n    .card {\n      max-width: 420px;\n      margin: 0 auto;\n      background: #fff;\n      border-radius: 14px;\n      overflow: hidden;\n      box-shadow: 0 10px 28px rgba(0,0,0,0.08);\n    }\n\n    .images img {\n      width: 100%;\n      display: block;\n      border-bottom: 1px solid #eee;\n    }\n\n    .content {\n      padding: 16px;\n    }\n\n    h1 {\n      font-size: 18px;\n      margin: 0 0 12px;\n      line-height: 1.4;\n    }\n\n    .text {\n      font-size: 14px;\n      line-height: 1.7;\n      white-space: pre-wrap;\n    }\n\n    .tags {\n      margin-top: 12px;\n      color: #999;\n      font-size: 13px;\n    }\n\n    .status {\n      padding: 12px;\n      background: #fafafa;\n      text-align: center;\n      font-size: 13px;\n      color: #666;\n      border-top: 1px solid #eee;\n    }\n  </style>\n</head>\n\n<body>\n  <div class=\"card\">\n\n    <!-- 图片平铺展示 -->\n    <div class=\"images\">\n      {{\n          $json.data\n            .map(img => `\n              <div class=\"slide\">\n                <img src=\"${img.url}\" />\n              </div>\n            `)\n            .join('')\n        }}\n    </div>\n\n  </div>\n</body>\n</html>\n"
+      },
+      "type": "n8n-nodes-base.html",
+      "typeVersion": 1.2,
+      "position": [
+        336,
+        176
+      ],
+      "id": "5b2dc7cb-e881-4d0f-9f72-19f1bfaf9e31",
+      "name": "HTML1"
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "xhs-start",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "form-entry-webhook",
+      "name": "表单入口",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -1616,
+        -500
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html"
+              }
+            ]
+          }
+        }
+      },
+      "id": "response-form-html",
+      "name": "显示输入表单",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        -1392,
+        -500
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. 构造 HTML 表单\n// action 指向实际处理的 Webhook UUID 路径\nconst targetWebhook = 'b0d17f6d-4ee9-4950-8230-b95a936b43cc';\n\nconst html = `\n<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n  <meta charset=\"UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <title>小红书笔记生成器</title>\n  <style>\n    body {\n      font-family: -apple-system, BlinkMacSystemFont, \"PingFang SC\", \"Microsoft YaHei\", sans-serif;\n      background-color: #f7f7f7;\n      display: flex;\n      justify-content: center;\n      align-items: center;\n      min-height: 100vh;\n      margin: 0;\n    }\n    .container {\n      background: white;\n      padding: 2rem;\n      border-radius: 16px;\n      box-shadow: 0 4px 20px rgba(0,0,0,0.08);\n      width: 100%;\n      max-width: 500px;\n    }\n    h2 {\n      text-align: center;\n      color: #333;\n      margin-bottom: 1.5rem;\n    }\n    textarea {\n      width: 100%;\n      height: 200px;\n      padding: 1rem;\n      border: 2px solid #eee;\n      border-radius: 12px;\n      font-size: 16px;\n      resize: vertical;\n      outline: none;\n      box-sizing: border-box;\n      transition: border-color 0.3s;\n    }\n    textarea:focus {\n      border-color: #ff2442;\n    }\n    button {\n      width: 100%;\n      padding: 1rem;\n      margin-top: 1.5rem;\n      background-color: #ff2442;\n      color: white;\n      border: none;\n      border-radius: 12px;\n      font-size: 18px;\n      font-weight: bold;\n      cursor: pointer;\n      transition: background-color 0.3s, transform 0.1s;\n    }\n    button:hover {\n      background-color: #e02038;\n    }\n    button:active {\n      transform: scale(0.98);\n    }\n    .tip {\n      margin-top: 1rem;\n      font-size: 0.9rem;\n      color: #888;\n      text-align: center;\n    }\n  </style>\n</head>\n<body>\n  <div class=\"container\">\n    <h2>📝 小红书笔记生成</h2>\n    <form action=\"${targetWebhook}\" method=\"POST\">\n      <textarea name=\"chatInput\" placeholder=\"请输入您的主题、要求或原始文案...\" required></textarea>\n      <button type=\"submit\">✨ 开始生成预览</button>\n      <p class=\"tip\">生成可能需要 15-30 秒，请耐心等待跳转...</p>\n    </form>\n  </div>\n</body>\n</html>\n`;\n\nreturn { html };"
+      },
+      "id": "generate-form-html",
+      "name": "构造表单HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1504,
+        -500
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "b0d17f6d-4ee9-4950-8230-b95a936b43cc",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "8d4cb800-b4e2-44a8-ad21-94b2816cd8b5",
+      "name": "浏览器预览入口",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -1616,
+        -96
+      ],
+      "webhookId": "b0d17f6d-4ee9-4950-8230-b95a936b43cc"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "输入规范化": {
+      "main": [
+        [
+          {
+            "node": "选题结构生成",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "选题结构生成": {
+      "main": [
+        [
+          {
+            "node": "JSON解析器",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JSON解析器": {
+      "main": [
+        [
+          {
+            "node": "正文生成",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "正文生成": {
+      "main": [
+        [
+          {
+            "node": "正文结构拆分",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "正文结构拆分": {
+      "main": [
+        [
+          {
+            "node": "配图Prompt生成",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "配图Prompt生成": {
+      "main": [
+        [
+          {
+            "node": "配图JSON解析器",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "配图JSON解析器": {
+      "main": [
+        [
+          {
+            "node": "生成封面图",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "内容图生成",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "矩阵账号拆分": {
+      "main": [
+        [
+          {
+            "node": "矩阵差异化改写Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "生成封面图": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "内容图生成": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 2
+          },
+          {
+            "node": "HTML1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "火山-doubao": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "矩阵差异化改写Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "组装文案",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "组装文案": {
+      "main": [
+        [
+          {
+            "node": "✅确认发布",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "✅确认发布": {
+      "main": [
+        [
+          {
+            "node": "生成HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "生成HTML": {
+      "main": [
+        [
+          {
+            "node": "发送预览到浏览器",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "发送预览到浏览器": {
+      "main": [
+        [
+          {
+            "node": "⏳等待用户确认",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "⏳等待用户确认": {
+      "main": [
+        [
+          {
+            "node": "Upsert row(s)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "xhs_mcp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "火山-db1.8": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "正文生成",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When chat message received": {
+      "main": [
+        []
+      ]
+    },
+    "火山-db1-8": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "选题结构生成",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "火山-db18": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "配图Prompt生成",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "浏览器预览入口": {
+      "main": [
+        [
+          {
+            "node": "输入规范化",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "表单入口": {
+      "main": [
+        [
+          {
+            "node": "构造表单HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "构造表单HTML": {
+      "main": [
+        [
+          {
+            "node": "显示输入表单",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "b3415c3c-0492-4236-91fe-802272d3be68",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "24d1029a95c23bce7943e6b7ccf730ff90a74df4094f4f597034760d7c386159"
+  },
+  "id": "xsLYJlYQwt9ddFxM8IC_I",
+  "tags": []
+}
