@@ -674,6 +674,30 @@
         -1824,
         1136
       ]
+    },
+    {
+      "parameters": {},
+      "id": "manual-debug-trigger-2026",
+      "name": "Manual Debug Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        400,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 🛠️ 调试专用数据\n// 当你需要测试预览/发布流程，但不想消耗 Token 生成内容时，\n// 可以直接手动执行此节点 (点击 Execute Node)\n\nreturn [{\n  json: {\n    title: \"[测试] 这是一个调试标题 2026\",\n    content: \"这是为了测试发布流程而生成的模拟正文。\\n包含多行文本和 Emoji 😊\\n无需消耗 AI Token 即可无限次测试前端交互。\\n\\n🎯 测试要点：\\n1. 图片轮播切换\\n2. 定时发布选择器\\n3. 确认/取消按钮\\n4. Wait 节点触发\\n5. 最终发布流程\",\n    tags: [\"#测试\", \"#调试\", \"#n8n\", \"#自动发布\"],\n    images: [\n      \"https://picsum.photos/seed/n8n1/800/1066\",\n      \"https://picsum.photos/seed/n8n2/800/1066\",\n      \"https://picsum.photos/seed/n8n3/800/1066\"\n    ]\n  }\n}];"
+      },
+      "id": "mock-data-node-2026",
+      "name": "🛠️生成模拟数据",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        600,
+        800
+      ]
     }
   ],
   "pinData": {},
@@ -716,6 +740,28 @@
         [
           {
             "node": "⏰定时发布",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Debug Trigger": {
+      "main": [
+        [
+          {
+            "node": "🛠️生成模拟数据",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🛠️生成模拟数据": {
+      "main": [
+        [
+          {
+            "node": "✅确认发布",
             "type": "main",
             "index": 0
           }
