@@ -1,0 +1,409 @@
+package com.xhs.browser;
+
+import com.microsoft.playwright.*;
+import com.microsoft.playwright.options.Geolocation;
+import com.microsoft.playwright.options.Proxy;
+import com.microsoft.playwright.options.WaitUntilState;
+import com.xhs.entity.BrowserEnvironment;
+import com.xhs.utils.AntiDetectionManager;
+import com.xhs.utils.PublishStatusMonitor;
+import com.xhs.utils.SelectorManager;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.nio.file.Paths;
+import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+@Service
+public class BrowserAutomationService {
+
+    private static final Logger logger = LoggerFactory.getLogger(BrowserAutomationService.class);
+
+    private final SelectorManager selectorManager;
+    private final AntiDetectionManager antiDetectionManager;
+    private final PublishStatusMonitor publishStatusMonitor;
+
+    // 保存浏览器实例，使用线程安全的Map
+    private final ConcurrentHashMap<Long, BrowserContext> browserContextMap = new ConcurrentHashMap<>();
+    private final AtomicBoolean isPlaywrightInitialized = new AtomicBoolean(false);
+    private Playwright playwright;
+    private Browser browser;
+
+    @Autowired
+    public BrowserAutomationService(SelectorManager selectorManager, 
+                                   AntiDetectionManager antiDetectionManager,
+                                   PublishStatusMonitor publishStatusMonitor) {
+        this.selectorManager = selectorManager;
+        this.antiDetectionManager = antiDetectionManager;
+        this.publishStatusMonitor = publishStatusMonitor;
+    }
+
+    // 初始化Playwright
+    private void initializePlaywright() {
+        if (isPlaywrightInitialized.compareAndSet(false, true)) {
+            try {
+                playwright = Playwright.create();
+                browser = playwright.chromium().launch(new BrowserType.LaunchOptions()
+                        .setHeadless(false)
+                        .setTimeout(60000)
+                        .setArgs(List.of(
+                                "--no-sandbox",
+                                "--disable-dev-shm-usage",
+                                "--disable-gpu",
+                                "--disable-extensions",
+                                "--disable-infobars",
+                                "--start-maximized",
+                                "--ignore-certificate-errors",
+                                "--ignore-ssl-errors",
+                                "--disable-web-security",
+                                "--disable-features=VizDisplayCompositor",
+                                "--disable-background-timer-throttling",
+                                "--disable-renderer-backgrounding",
+                                "--disable-backgrounding-occluded-windows",
+                                "--memory-pressure-off",
+                                "--max_old_space_size=4096"
+                        )));
+                logger.info("Playwright 初始化成功");
+            } catch (Exception e) {
+                logger.error("Playwright 初始化失败: {}", e.getMessage(), e);
+                isPlaywrightInitialized.set(false);
+                throw new RuntimeException("Playwright 初始化失败", e);
+            }
+        }
+    }
+
+    // 为用户创建浏览器上下文
+    public BrowserContext createBrowserContext(BrowserEnvironment environment) {
+        initializePlaywright();
+        
+        Browser.NewContextOptions contextOptions = new Browser.NewContextOptions();
+        
+        // 设置浏览器指纹
+        if (environment.getFingerprint() != null) {
+            var fingerprint = environment.getFingerprint();
+            contextOptions.setUserAgent(fingerprint.getUserAgent());
+            contextOptions.setViewportSize(fingerprint.getViewportWidth(), fingerprint.getViewportHeight());
+            contextOptions.setScreenSize(fingerprint.getScreenWidth(), fingerprint.getScreenHeight());
+            contextOptions.setLocale(fingerprint.getLocale());
+            contextOptions.setTimezoneId(fingerprint.getTimezone());
+            
+            // 设置地理位置
+            if (environment.getGeolocationLatitude() != null && environment.getGeolocationLongitude() != null) {
+                contextOptions.setGeolocation(new Geolocation(
+                        Double.parseDouble(environment.getGeolocationLatitude()),
+                        Double.parseDouble(environment.getGeolocationLongitude())
+                ));
+            }
+        }
+        
+        // 设置代理
+        if (environment.getProxyConfig() != null) {
+            var proxy = environment.getProxyConfig();
+            String proxyUrl = String.format("%s://%s:%d", proxy.getProxyType(), proxy.getHost(), proxy.getPort());
+            contextOptions.setProxy(new Proxy(proxyUrl));
+            logger.info("设置代理: {}", proxyUrl);
+        }
+        
+        BrowserContext context = browser.newContext(contextOptions);
+        browserContextMap.put(environment.getId(), context);
+        
+        // 注入反检测脚本
+        injectStealthScript(context);
+        
+        logger.info("为用户创建浏览器上下文成功, 环境ID: {}", environment.getId());
+        return context;
+    }
+
+    // 获取浏览器上下文
+    public BrowserContext getBrowserContext(Long environmentId) {
+        return browserContextMap.get(environmentId);
+    }
+
+    // 关闭浏览器上下文
+    public void closeBrowserContext(Long environmentId) {
+        BrowserContext context = browserContextMap.remove(environmentId);
+        if (context != null) {
+            try {
+                context.close();
+                logger.info("关闭浏览器上下文成功, 环境ID: {}", environmentId);
+            } catch (Exception e) {
+                logger.error("关闭浏览器上下文失败, 环境ID: {}: {}", environmentId, e.getMessage(), e);
+            }
+        }
+    }
+
+    // 注入反检测脚本
+    private void injectStealthScript(BrowserContext context) {
+        String stealthScript = """
+        (function() {
+            // 隐藏webdriver
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            });
+            
+            // 隐藏plugins
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [1, 2, 3, 4, 5]
+            });
+            
+            // 隐藏languages
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['zh-CN', 'zh']
+            });
+            
+            // 添加chrome对象
+            window.chrome = {
+                runtime: {}
+            };
+            
+            // 禁用Service Worker
+            if ('serviceWorker' in navigator) {
+                Object.defineProperty(navigator, 'serviceWorker', {
+                    get: () => undefined
+                });
+            }
+        })();
+        """;
+        
+        context.addInitScript(stealthScript);
+    }
+
+    // 登录小红书
+    public boolean login(Long environmentId, String phone) {
+        BrowserContext context = getBrowserContext(environmentId);
+        if (context == null) {
+            logger.error("浏览器上下文不存在, 环境ID: {}", environmentId);
+            return false;
+        }
+        
+        Page page = null;
+        try {
+            page = context.newPage();
+            
+            // 导航到登录页面
+            page.navigate("https://www.xiaohongshu.com/", new Page.NavigateOptions().setWaitUntil(WaitUntilState.NETWORKIDLE));
+            logger.info("导航到小红书首页成功");
+            
+            antiDetectionManager.randomDelay(page);
+            antiDetectionManager.randomMouseMove(page);
+
+            // 等待页面加载
+            page.waitForLoadState();
+
+            // 查找并点击登录按钮
+            Locator loginButton = selectorManager.findElement(page, "login", "loginButton");
+            if (loginButton.count() > 0) {
+                loginButton.click();
+                logger.info("点击登录按钮成功");
+                
+                // 等待弹出登录框或跳转到登录页
+                antiDetectionManager.randomDelay(page);
+                
+                // 尝试通过手机号登录
+                Locator phoneInput = selectorManager.findElement(page, "login", "phoneInput");
+                if (phoneInput.count() > 0) {
+                    phoneInput.fill(phone);
+                    logger.info("输入手机号成功: {}", phone);
+                    antiDetectionManager.randomDelay(page, 500, 1000);
+                    
+                    // 点击获取验证码按钮
+                    Locator codeButton = selectorManager.findElement(page, "login", "codeButton");
+                    if (codeButton.count() > 0) {
+                        codeButton.click();
+                        logger.info("已点击获取验证码按钮");
+                        
+                        // 等待用户输入验证码（实际应用中需要从外部获取验证码）
+                        page.waitForTimeout(30000); // 等待30秒供用户输入验证码
+                    }
+                }
+            } else {
+                logger.warn("未找到登录按钮");
+            }
+
+            // 等待登录完成（这里需要根据实际页面元素判断）
+            page.waitForTimeout(5000);
+            
+            logger.info("登录流程执行完成");
+            return true;
+        } catch (Exception e) {
+            logger.error("登录过程中发生错误: {}", e.getMessage(), e);
+            return false;
+        } finally {
+            // 注意：这里不应该关闭页面，因为登录后页面需要保持打开状态
+        }
+    }
+
+    // 发布笔记
+    public boolean publishNote(Long environmentId, String title, String content, String[] imagePaths) {
+        BrowserContext context = getBrowserContext(environmentId);
+        if (context == null) {
+            logger.error("浏览器上下文不存在, 环境ID: {}", environmentId);
+            return false;
+        }
+        
+        Page page = null;
+        try {
+            page = context.newPage();
+            
+            // 导航到创作者中心或发布页面
+            page.navigate("https://creator.xiaohongshu.com/");
+            logger.info("导航到创作者中心成功");
+            
+            antiDetectionManager.randomDelay(page);
+            antiDetectionManager.randomMouseMove(page);
+            
+            // 等待页面加载
+            page.waitForLoadState();
+            
+            // 点击发布按钮
+            Locator publishEntryButton = selectorManager.findElement(page, "publish", "publishEntryButton");
+            if (publishEntryButton.count() > 0) {
+                publishEntryButton.click();
+                logger.info("点击发布按钮成功");
+                
+                // 等待发布页面加载
+                antiDetectionManager.randomDelay(page, 2000, 4000);
+                
+                // 上传图片
+                if (imagePaths != null && imagePaths.length > 0) {
+                    uploadImages(page, imagePaths);
+                }
+                
+                antiDetectionManager.randomScroll(page);
+                antiDetectionManager.randomDelay(page);
+                
+                // 输入标题
+                Locator titleInput = selectorManager.findElement(page, "publish", "titleInput");
+                if (titleInput.count() > 0) {
+                    titleInput.fill(title);
+                    logger.info("输入标题成功: {}", title);
+                    antiDetectionManager.randomDelay(page, 500, 1500);
+                } else {
+                    logger.warn("未找到标题输入框");
+                }
+                
+                // 输入内容
+                Locator contentInput = selectorManager.findElement(page, "publish", "contentInput");
+                if (contentInput.count() > 0) {
+                    contentInput.fill(content);
+                    logger.info("输入内容成功");
+                    antiDetectionManager.randomDelay(page, 500, 1500);
+                } else {
+                    logger.warn("未找到内容输入框");
+                }
+                
+                // 点击发布
+                Locator finalPublishButton = selectorManager.findElement(page, "publish", "finalPublishButton");
+                if (finalPublishButton.count() > 0) {
+                    finalPublishButton.click();
+                    logger.info("点击最终发布按钮成功");
+                    
+                    // 等待发布完成 - 现在使用 PublishStatusMonitor 监控
+                    PublishStatusMonitor.PublishStatus status = publishStatusMonitor.waitForPublishComplete(page, 10000);
+                    if (status == PublishStatusMonitor.PublishStatus.SUCCESS) {
+                        logger.info("笔记发布成功确认");
+                        return true;
+                    } else if (status == PublishStatusMonitor.PublishStatus.FAILED) {
+                        logger.error("笔记发布失败");
+                        return false;
+                    } else {
+                        logger.warn("无法确认发布状态，可能需要人工检查");
+                        // 这里可以根据业务需求决定是返回 true 还是 false，或者抛出异常
+                        // 目前假设如果没报错也没成功，可能是网络慢或者其他原因，暂时返回 false 让上层重试或人工处理
+                        return false;
+                    }
+                } else {
+                    logger.warn("未找到最终发布按钮");
+                    return false;
+                }
+            } else {
+                logger.error("未找到发布入口按钮");
+                return false;
+            }
+        } catch (Exception e) {
+            logger.error("发布笔记过程中发生错误: {}", e.getMessage(), e);
+            return false;
+        } finally {
+            if (page != null) {
+                page.close();
+            }
+        }
+    }
+
+    // 上传图片
+    public void uploadImages(Page page, String[] imagePaths) {
+        if (imagePaths == null || imagePaths.length == 0) {
+            logger.info("没有图片需要上传");
+            return;
+        }
+        
+        try {
+            // 查找上传按钮
+            Locator uploadButton = selectorManager.findElement(page, "publish", "uploadInput");
+            
+            if (uploadButton.count() > 0) {
+                // 准备文件路径数组
+                java.nio.file.Path[] filePaths = new java.nio.file.Path[imagePaths.length];
+                for (int i = 0; i < imagePaths.length; i++) {
+                    filePaths[i] = Paths.get(imagePaths[i]);
+                }
+                
+                // 设置文件到上传输入框
+                uploadButton.setInputFiles(filePaths);
+                logger.info("批量上传图片成功: {}", imagePaths.length + "张图片");
+            } else {
+                logger.warn("未找到图片上传按钮，尝试其他方式上传");
+                
+                // 如果直接找不到上传按钮，尝试点击可能的区域
+                Locator imageUploadArea = selectorManager.findElement(page, "publish", "imageUploadArea");
+                if (imageUploadArea.count() > 0) {
+                    imageUploadArea.click();
+                    antiDetectionManager.randomDelay(page, 500, 1000);
+                    
+                    // 再次尝试查找上传按钮
+                    uploadButton = selectorManager.findElement(page, "publish", "uploadInput");
+                    if (uploadButton.count() > 0) {
+                        java.nio.file.Path[] filePaths = new java.nio.file.Path[imagePaths.length];
+                        for (int i = 0; i < imagePaths.length; i++) {
+                            filePaths[i] = Paths.get(imagePaths[i]);
+                        }
+                        uploadButton.setInputFiles(filePaths);
+                        logger.info("通过点击区域后上传图片成功");
+                    }
+                }
+            }
+            
+            // 等待图片上传完成
+            page.waitForTimeout(5000);
+        } catch (Exception e) {
+            logger.error("上传图片过程中发生错误: {}", e.getMessage(), e);
+        }
+    }
+
+    // 关闭Playwright
+    public void closePlaywright() {
+        if (isPlaywrightInitialized.compareAndSet(true, false)) {
+            try {
+                // 关闭所有浏览器上下文
+                for (BrowserContext context : browserContextMap.values()) {
+                    context.close();
+                }
+                browserContextMap.clear();
+                
+                if (browser != null) {
+                    browser.close();
+                }
+                if (playwright != null) {
+                    playwright.close();
+                }
+                logger.info("Playwright 关闭成功");
+            } catch (Exception e) {
+                logger.error("Playwright 关闭失败: {}", e.getMessage(), e);
+            }
+        }
+    }
+}

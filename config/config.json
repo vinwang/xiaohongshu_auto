@@ -1,0 +1,17 @@
+{
+  "browser": "chrome",
+  "headless": false,
+  "timeout": 30,
+  "retryTimes": 3,
+  "antiDetection": {
+    "minDelayMs": 1000,
+    "maxDelayMs": 3000,
+    "enableMouseMovement": true,
+    "randomViewport": true
+  },
+  "publishing": {
+    "uploadTimeoutSec": 60,
+    "publishCheckIntervalMs": 2000,
+    "maxPublishWaitSec": 30
+  }
+}

@@ -1,0 +1,1464 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>小红书AI发布助手</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary-color: #6366f1;
+            --primary-hover: #818cf8;
+            --secondary-color: #8b5cf6;
+            --success-color: #10b981;
+            --warning-color: #f59e0b;
+            --danger-color: #ef4444;
+            --dark-bg: #0f172a;
+            --card-bg: #1e293b;
+            --card-hover: #334155;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --border-color: #334155;
+            --glass-bg: rgba(30, 41, 59, 0.8);
+            --glass-border: rgba(255, 255, 255, 0.1);
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%);
+            color: var(--text-primary);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* 背景动画 */
+        .bg-animation {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 0;
+            overflow: hidden;
+        }
+
+        .bg-animation::before {
+            content: '';
+            position: absolute;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle at 20% 80%, rgba(99, 102, 241, 0.15) 0%, transparent 50%),
+                        radial-gradient(circle at 80% 20%, rgba(139, 92, 246, 0.15) 0%, transparent 50%),
+                        radial-gradient(circle at 40% 40%, rgba(16, 185, 129, 0.1) 0%, transparent 30%);
+            animation: gradientMove 20s ease-in-out infinite;
+        }
+
+        @keyframes gradientMove {
+            0%, 100% { transform: translate(0, 0); }
+            25% { transform: translate(-5%, -5%); }
+            50% { transform: translate(-10%, 0); }
+            75% { transform: translate(-5%, 5%); }
+        }
+
+        /* 主容器 */
+        .app-container {
+            display: flex;
+            height: 100vh;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* 侧边栏 */
+        .sidebar {
+            width: 280px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border-right: 1px solid var(--glass-border);
+            display: flex;
+            flex-direction: column;
+            padding: 24px;
+            transition: all 0.3s ease;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px;
+            margin-bottom: 32px;
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+        }
+
+        .logo-text {
+            font-size: 18px;
+            font-weight: 600;
+            color: white;
+        }
+
+        .nav-menu {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            flex: 1;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 14px 16px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            color: var(--text-secondary);
+            font-weight: 500;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .nav-item::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 3px;
+            height: 100%;
+            background: linear-gradient(180deg, var(--primary-color), var(--secondary-color));
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .nav-item:hover {
+            background: var(--card-hover);
+            color: var(--text-primary);
+            transform: translateX(4px);
+        }
+
+        .nav-item.active {
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(139, 92, 246, 0.2));
+            color: var(--text-primary);
+        }
+
+        .nav-item.active::before {
+            opacity: 1;
+        }
+
+        .nav-icon {
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* 主内容区 */
+        .main-content {
+            flex: 1;
+            padding: 32px;
+            overflow-y: auto;
+            position: relative;
+        }
+
+        .page {
+            display: none;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .page.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .page-header {
+            margin-bottom: 32px;
+        }
+
+        .page-title {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .page-subtitle {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        /* 卡片样式 */
+        .card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 24px;
+            transition: all 0.3s ease;
+        }
+
+        .card:hover {
+            border-color: rgba(99, 102, 241, 0.3);
+            box-shadow: 0 8px 32px rgba(99, 102, 241, 0.1);
+        }
+
+        .card-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* 表单样式 */
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 12px 16px;
+            background: var(--dark-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            color: var(--text-primary);
+            font-size: 14px;
+            transition: all 0.3s ease;
+            outline: none;
+        }
+
+        .form-input:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+        }
+
+        .form-input::placeholder {
+            color: var(--text-secondary);
+        }
+
+        .form-textarea {
+            min-height: 120px;
+            resize: vertical;
+        }
+
+        /* 按钮样式 */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 12px 24px;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: none;
+            outline: none;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary-color), var(--secondary-color));
+            color: white;
+            box-shadow: 0 4px 15px rgba(99, 102, 241, 0.3);
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(99, 102, 241, 0.4);
+        }
+
+        .btn-primary:active {
+            transform: translateY(0);
+        }
+
+        .btn-secondary {
+            background: var(--card-bg);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-secondary:hover {
+            background: var(--card-hover);
+        }
+
+        .btn-danger {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--danger-color);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+        }
+
+        .btn-danger:hover {
+            background: rgba(239, 68, 68, 0.2);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white;
+            box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+        }
+
+        .btn-success:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+        }
+
+        /* 表格样式 */
+        .table-container {
+            overflow-x: auto;
+        }
+
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .data-table th,
+        .data-table td {
+            padding: 16px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .data-table th {
+            font-weight: 600;
+            color: var(--text-secondary);
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .data-table td {
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+
+        .data-table tr:hover {
+            background: var(--card-hover);
+        }
+
+        /* 状态标签 */
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .status-badge.active {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--success-color);
+        }
+
+        .status-badge.inactive {
+            background: rgba(148, 163, 184, 0.1);
+            color: var(--text-secondary);
+        }
+
+        .status-badge.pending {
+            background: rgba(245, 158, 11, 0.1);
+            color: var(--warning-color);
+        }
+
+        .status-badge.error {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--danger-color);
+        }
+
+        /* 统计卡片 */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 24px;
+            margin-bottom: 32px;
+        }
+
+        .stat-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 24px;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background: linear-gradient(90deg, var(--primary-color), var(--secondary-color));
+        }
+
+        .stat-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 40px rgba(99, 102, 241, 0.15);
+        }
+
+        .stat-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(139, 92, 246, 0.2));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            margin-bottom: 16px;
+        }
+
+        .stat-value {
+            font-size: 32px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 4px;
+        }
+
+        .stat-label {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        /* 模态框 */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(4px);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+            animation: fadeIn 0.2s ease;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal {
+            background: var(--card-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 16px;
+            padding: 32px;
+            max-width: 500px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+            animation: slideUp 0.3s ease;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 24px;
+        }
+
+        .modal-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .modal-close {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: var(--dark-bg);
+            border: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            color: var(--text-secondary);
+        }
+
+        .modal-close:hover {
+            background: var(--card-hover);
+            color: var(--text-primary);
+        }
+
+        .modal-footer {
+            display: flex;
+            gap: 12px;
+            justify-content: flex-end;
+            margin-top: 24px;
+        }
+
+        /* Toast 通知 */
+        .toast-container {
+            position: fixed;
+            top: 24px;
+            right: 24px;
+            z-index: 1001;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .toast {
+            background: var(--card-bg);
+            border: 1px solid var(--glass-border);
+            border-radius: 12px;
+            padding: 16px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-width: 300px;
+            animation: slideIn 0.3s ease;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(100%);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .toast.success {
+            border-left: 3px solid var(--success-color);
+        }
+
+        .toast.error {
+            border-left: 3px solid var(--danger-color);
+        }
+
+        .toast.warning {
+            border-left: 3px solid var(--warning-color);
+        }
+
+        .toast-icon {
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .toast-message {
+            flex: 1;
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+
+        /* 加载动画 */
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* 响应式 */
+        @media (max-width: 768px) {
+            .app-container {
+                flex-direction: column;
+            }
+
+            .sidebar {
+                width: 100%;
+                height: auto;
+                padding: 16px;
+            }
+
+            .nav-menu {
+                flex-direction: row;
+                overflow-x: auto;
+                padding-bottom: 8px;
+            }
+
+            .nav-item {
+                flex-shrink: 0;
+                padding: 10px 14px;
+            }
+
+            .nav-item span {
+                display: none;
+            }
+
+            .main-content {
+                padding: 16px;
+            }
+
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* 滚动条样式 */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--dark-bg);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--card-hover);
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-animation"></div>
+
+    <div class="app-container">
+        <!-- 侧边栏 -->
+        <aside class="sidebar">
+            <div class="logo">
+                <div class="logo-icon">🚀</div>
+                <div class="logo-text">小红书AI发布助手</div>
+            </div>
+
+            <nav class="nav-menu">
+                <div class="nav-item active" data-page="home">
+                    <div class="nav-icon">🏠</div>
+                    <span>首页</span>
+                </div>
+                <div class="nav-item" data-page="users">
+                    <div class="nav-icon">👥</div>
+                    <span>用户管理</span>
+                </div>
+                <div class="nav-item" data-page="browser">
+                    <div class="nav-icon">🌐</div>
+                    <span>浏览器环境</span>
+                </div>
+                <div class="nav-item" data-page="backend">
+                    <div class="nav-icon">🔧</div>
+                    <span>后端配置</span>
+                </div>
+                <div class="nav-item" data-page="cover">
+                    <div class="nav-icon">🖼️</div>
+                    <span>封面中心</span>
+                </div>
+                <div class="nav-item" data-page="datacenter">
+                    <div class="nav-icon">📊</div>
+                    <span>数据中心</span>
+                </div>
+                <div class="nav-item" data-page="tools">
+                    <div class="nav-icon">🛠️</div>
+                    <span>工具</span>
+                </div>
+                <div class="nav-item" data-page="settings">
+                    <div class="nav-icon">⚙️</div>
+                    <span>设置</span>
+                </div>
+            </nav>
+        </aside>
+
+        <!-- 主内容区 -->
+        <main class="main-content">
+            <!-- 首页 -->
+            <div class="page active" id="page-home">
+                <div class="page-header">
+                    <h1 class="page-title">内容生成</h1>
+                    <p class="page-subtitle">使用AI生成小红书内容</p>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon">📊</div>
+                        <div class="stat-value" id="stat-users">0</div>
+                        <div class="stat-label">总用户数</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">✅</div>
+                        <div class="stat-value" id="stat-published">0</div>
+                        <div class="stat-label">已发布</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">⏰</div>
+                        <div class="stat-value" id="stat-tasks">0</div>
+                        <div class="stat-label">定时任务</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon">👤</div>
+                        <div class="stat-value" id="stat-active">0</div>
+                        <div class="stat-label">活跃用户</div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">✨ AI内容生成</div>
+                    <div class="form-group">
+                        <label class="form-label">生成类型</label>
+                        <select class="form-input" id="generate-type">
+                            <option value="title">标题生成</option>
+                            <option value="content">内容生成</option>
+                            <option value="general">通用生成</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">提示词</label>
+                        <textarea class="form-input form-textarea" id="generate-prompt" placeholder="请输入生成内容的提示词..."></textarea>
+                    </div>
+                    <button class="btn btn-primary" onclick="generateContent()">
+                        <span id="generate-btn-text">生成内容</span>
+                    </button>
+                    <div id="generate-result" style="margin-top: 16px; display: none;">
+                        <div class="form-group">
+                            <label class="form-label">生成结果</label>
+                            <textarea class="form-input form-textarea" id="generate-output" readonly></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 用户管理 -->
+            <div class="page" id="page-users">
+                <div class="page-header">
+                    <h1 class="page-title">用户管理</h1>
+                    <p class="page-subtitle">管理系统用户</p>
+                </div>
+                <div class="card">
+                    <div class="card-title">👥 用户列表</div>
+                    <button class="btn btn-primary" onclick="showAddUserModal()">添加用户</button>
+                    <div class="table-container" style="margin-top: 16px;">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>用户名</th>
+                                    <th>手机号</th>
+                                    <th>显示名称</th>
+                                    <th>状态</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="users-table-body">
+                                <tr>
+                                    <td colspan="6" style="text-align: center; color: var(--text-secondary);">加载中...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 浏览器环境 -->
+            <div class="page" id="page-browser">
+                <div class="page-header">
+                    <h1 class="page-title">浏览器环境</h1>
+                    <p class="page-subtitle">管理浏览器环境和配置</p>
+                </div>
+                <div class="card">
+                    <div class="card-title">🌐 浏览器环境列表</div>
+                    <button class="btn btn-primary" onclick="showAddBrowserEnvModal()">添加环境</button>
+                    <div class="table-container" style="margin-top: 16px;">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>ID</th>
+                                    <th>名称</th>
+                                    <th>状态</th>
+                                    <th>默认</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="browser-table-body">
+                                <tr>
+                                    <td colspan="5" style="text-align: center; color: var(--text-secondary);">加载中...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 后端配置 -->
+            <div class="page" id="page-backend">
+                <div class="page-header">
+                    <h1 class="page-title">后端配置</h1>
+                    <p class="page-subtitle">配置AI模型和发布参数</p>
+                </div>
+                <div class="card">
+                    <div class="card-title">🤖 AI模型配置</div>
+                    <div class="form-group">
+                        <label class="form-label">AI提供商</label>
+                        <select class="form-input" id="ai-provider">
+                            <option value="kimi">Kimi (月之暗面)</option>
+                            <option value="qwen">Qwen (通义千问)</option>
+                            <option value="openai">OpenAI</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">API密钥</label>
+                        <input type="password" class="form-input" id="api-key" placeholder="请输入API密钥">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">模型名称</label>
+                        <input type="text" class="form-input" id="model-name" placeholder="请输入模型名称">
+                    </div>
+                    <button class="btn btn-primary" onclick="testAIConnection()">测试连接</button>
+                    <button class="btn btn-success" onclick="saveBackendConfig()">保存配置</button>
+                </div>
+            </div>
+
+            <!-- 封面中心 -->
+            <div class="page" id="page-cover">
+                <div class="page-header">
+                    <h1 class="page-title">封面中心</h1>
+                    <p class="page-subtitle">选择和管理封面模板</p>
+                </div>
+                <div class="card">
+                    <div class="card-title">🖼️ 封面模板</div>
+                    <div id="cover-templates" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px;">
+                        <div style="text-align: center; color: var(--text-secondary);">加载中...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 数据中心 -->
+            <div class="page" id="page-datacenter">
+                <div class="page-header">
+                    <h1 class="page-title">数据中心</h1>
+                    <p class="page-subtitle">查看热点和数据统计</p>
+                </div>
+                <div class="card">
+                    <div class="card-title">📊 热点数据</div>
+                    <div style="margin-bottom: 16px;">
+                        <button class="btn btn-primary" onclick="loadHotData('weibo')">微博热搜</button>
+                        <button class="btn btn-secondary" onclick="loadHotData('baidu')">百度热搜</button>
+                        <button class="btn btn-secondary" onclick="loadHotData('toutiao')">头条热搜</button>
+                        <button class="btn btn-secondary" onclick="loadHotData('bilibili')">B站热搜</button>
+                    </div>
+                    <div id="hot-data-container" style="color: var(--text-secondary);">
+                        请选择一个平台查看热点数据
+                    </div>
+                </div>
+            </div>
+
+            <!-- 工具 -->
+            <div class="page" id="page-tools">
+                <div class="page-header">
+                    <h1 class="page-title">工具</h1>
+                    <p class="page-subtitle">实用工具集合</p>
+                </div>
+                <div class="card">
+                    <div class="card-title">🎬 视频去水印</div>
+                    <div class="form-group">
+                        <label class="form-label">视频URL</label>
+                        <input type="text" class="form-input" id="video-url" placeholder="请输入视频URL">
+                    </div>
+                    <button class="btn btn-primary" onclick="removeWatermark()">去水印</button>
+                    <div id="watermark-result" style="margin-top: 16px; display: none;"></div>
+                </div>
+            </div>
+
+            <!-- 设置 -->
+            <div class="page" id="page-settings">
+                <div class="page-header">
+                    <h1 class="page-title">设置</h1>
+                    <p class="page-subtitle">系统设置</p>
+                </div>
+                <div class="card">
+                    <div class="card-title">📋 版本信息</div>
+                    <p style="color: var(--text-secondary);">
+                        小红书AI发布助手 v1.0.0<br>
+                        基于 Spring Boot 4.0.0 + Java 25
+                    </p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 模态框 -->
+    <div class="modal-overlay" id="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 class="modal-title" id="modal-title">标题</h3>
+                <button class="modal-close" onclick="closeModal()">✕</button>
+            </div>
+            <div class="modal-body" id="modal-body">
+                <!-- 动态内容 -->
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal()">取消</button>
+                <button class="btn btn-primary" id="modal-confirm">确认</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast 容器 -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <script>
+        // 页面切换
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', function() {
+                const page = this.dataset.page;
+                
+                // 更新导航状态
+                document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
+                this.classList.add('active');
+                
+                // 切换页面
+                document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+                document.getElementById('page-' + page).classList.add('active');
+                
+                // 加载页面数据
+                loadPageData(page);
+            });
+        });
+
+        // 加载页面数据
+        function loadPageData(page) {
+            switch(page) {
+                case 'home':
+                    loadHomeStats();
+                    break;
+                case 'users':
+                    loadUsers();
+                    break;
+                case 'browser':
+                    loadBrowserEnvironments();
+                    break;
+                case 'cover':
+                    loadCoverTemplates();
+                    break;
+            }
+        }
+
+        // 加载首页统计
+        async function loadHomeStats() {
+            try {
+                const response = await fetch('/api/frontend/home/stats');
+                const data = await response.json();
+                document.getElementById('stat-users').textContent = data.totalUsers || 0;
+                document.getElementById('stat-published').textContent = data.totalPublished || 0;
+                document.getElementById('stat-tasks').textContent = data.totalTasks || 0;
+                document.getElementById('stat-active').textContent = data.activeUsers || 0;
+            } catch (error) {
+                console.error('加载统计数据失败:', error);
+            }
+        }
+
+        // 加载用户列表
+        async function loadUsers() {
+            try {
+                const response = await fetch('/api/users');
+                const users = await response.json();
+                const tbody = document.getElementById('users-table-body');
+                
+                if (users.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--text-secondary);">暂无用户</td></tr>';
+                    return;
+                }
+                
+                tbody.innerHTML = users.map(user => `
+                    <tr>
+                        <td>${user.id}</td>
+                        <td>${user.username}</td>
+                        <td>${user.phone}</td>
+                        <td>${user.displayName || '-'}</td>
+                        <td>
+                            <span class="status-badge ${user.isActive ? 'active' : 'inactive'}">
+                                ${user.isActive ? '活跃' : '未激活'}
+                            </span>
+                        </td>
+                        <td>
+                            <button class="btn btn-secondary" style="padding: 6px 12px; font-size: 12px;" onclick="setCurrentUser(${user.id})">设为当前</button>
+                            <button class="btn btn-danger" style="padding: 6px 12px; font-size: 12px;" onclick="deleteUser(${user.id})">删除</button>
+                        </td>
+                    </tr>
+                `).join('');
+            } catch (error) {
+                console.error('加载用户列表失败:', error);
+                document.getElementById('users-table-body').innerHTML = '<tr><td colspan="6" style="text-align: center; color: var(--danger-color);">加载失败</td></tr>';
+            }
+        }
+
+        // 加载浏览器环境
+        async function loadBrowserEnvironments() {
+            try {
+                const response = await fetch('/api/browser-environments');
+                const environments = await response.json();
+                const tbody = document.getElementById('browser-table-body');
+                
+                if (environments.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--text-secondary);">暂无环境</td></tr>';
+                    return;
+                }
+                
+                tbody.innerHTML = environments.map(env => `
+                    <tr>
+                        <td>${env.id}</td>
+                        <td>${env.name}</td>
+                        <td>
+                            <span class="status-badge ${env.isActive ? 'active' : 'inactive'}">
+                                ${env.isActive ? '活跃' : '未激活'}
+                            </span>
+                        </td>
+                        <td>
+                            <span class="status-badge ${env.isDefault ? 'active' : 'inactive'}">
+                                ${env.isDefault ? '默认' : '普通'}
+                            </span>
+                        </td>
+                        <td>
+                            <button class="btn btn-danger" style="padding: 6px 12px; font-size: 12px;" onclick="deleteBrowserEnv(${env.id})">删除</button>
+                        </td>
+                    </tr>
+                `).join('');
+            } catch (error) {
+                console.error('加载浏览器环境失败:', error);
+                document.getElementById('browser-table-body').innerHTML = '<tr><td colspan="5" style="text-align: center; color: var(--danger-color);">加载失败</td></tr>';
+            }
+        }
+
+        // 生成内容
+        async function generateContent() {
+            const type = document.getElementById('generate-type').value;
+            const prompt = document.getElementById('generate-prompt').value;
+            
+            if (!prompt.trim()) {
+                showToast('请输入提示词', 'warning');
+                return;
+            }
+            
+            const btn = document.querySelector('#page-home .btn-primary');
+            const btnText = document.getElementById('generate-btn-text');
+            const originalText = btnText.textContent;
+            
+            btnText.innerHTML = '<span class="loading"></span> 生成中...';
+            btn.disabled = true;
+            
+            try {
+                const response = await fetch('/api/frontend/home/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ type, prompt, userId: 1 })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    document.getElementById('generate-output').value = result.content;
+                    document.getElementById('generate-result').style.display = 'block';
+                    showToast('生成成功！', 'success');
+                } else {
+                    showToast('生成失败: ' + (result.error || '未知错误'), 'error');
+                }
+            } catch (error) {
+                console.error('生成内容失败:', error);
+                showToast('生成失败: ' + error.message, 'error');
+            } finally {
+                btnText.textContent = originalText;
+                btn.disabled = false;
+            }
+        }
+
+        // 测试AI连接
+        async function testAIConnection() {
+            const provider = document.getElementById('ai-provider').value;
+            const apiKey = document.getElementById('api-key').value;
+            
+            if (!apiKey.trim()) {
+                showToast('请输入API密钥', 'warning');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/ai/test-connection', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ providerType: provider, apiKey })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showToast('连接成功！', 'success');
+                } else {
+                    showToast('连接失败: ' + (result.error || '未知错误'), 'error');
+                }
+            } catch (error) {
+                console.error('测试连接失败:', error);
+                showToast('连接失败: ' + error.message, 'error');
+            }
+        }
+
+        // 保存后端配置
+        function saveBackendConfig() {
+            showToast('配置已保存', 'success');
+        }
+
+        // 加载封面模板
+        async function loadCoverTemplates() {
+            const container = document.getElementById('cover-templates');
+            container.innerHTML = '<div style="text-align: center; color: var(--text-secondary);">加载中...</div>';
+            
+            try {
+                const response = await fetch('/api/cover-templates');
+                const templates = await response.json();
+                
+                if (templates.length === 0) {
+                    container.innerHTML = '<div style="text-align: center; color: var(--text-secondary);">暂无封面模板</div>';
+                    return;
+                }
+                
+                container.innerHTML = templates.map(template => `
+                    <div style="background: var(--card-bg); border-radius: 12px; overflow: hidden; border: 1px solid var(--border-color); transition: all 0.3s ease; cursor: pointer;" onmouseover="this.style.borderColor='var(--primary-color)'" onmouseout="this.style.borderColor='var(--border-color)'" onclick="selectCoverTemplate('${template.id}')">
+                        <img src="${template.url}" alt="${template.name}" style="width: 100%; height: 200px; object-fit: cover;">
+                        <div style="padding: 12px;">
+                            <div style="font-size: 14px; font-weight: 500; color: var(--text-primary);">${template.name}</div>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('加载封面模板失败:', error);
+                container.innerHTML = '<div style="text-align: center; color: var(--danger-color);">加载失败</div>';
+            }
+        }
+
+        // 选择封面模板
+        function selectCoverTemplate(templateId) {
+            showToast('已选择封面模板: ' + templateId, 'success');
+        }
+
+        // 加载热点数据
+        async function loadHotData(platform) {
+            const container = document.getElementById('hot-data-container');
+            container.innerHTML = '<div style="text-align: center; color: var(--text-secondary);">加载中...</div>';
+            
+            try {
+                const response = await fetch(`/api/hot-data/${platform}`);
+                const result = await response.json();
+                
+                if (!result.success) {
+                    container.innerHTML = '<div style="text-align: center; color: var(--danger-color);">' + (result.message || '加载失败') + '</div>';
+                    return;
+                }
+                
+                const platformNames = {
+                    'weibo': '微博',
+                    'baidu': '百度',
+                    'toutiao': '头条',
+                    'bilibili': 'B站'
+                };
+                
+                let html = `<h3 style="margin-bottom: 16px; color: var(--text-primary);">${platformNames[platform] || platform}热搜排行榜</h3>`;
+                html += '<div style="display: flex; flex-direction: column; gap: 12px;">';
+                
+                result.data.forEach((item, index) => {
+                    const rankColor = index < 3 ? 'var(--primary-color)' : 'var(--text-secondary)';
+                    const trendIcon = item.trend === '上升' ? '📈' : item.trend === '下降' ? '📉' : '➡️';
+                    const trendColor = item.trend === '上升' ? 'var(--success-color)' : item.trend === '下降' ? 'var(--danger-color)' : 'var(--text-secondary)';
+                    
+                    html += `
+                        <div style="display: flex; align-items: center; gap: 16px; padding: 12px; background: var(--card-bg); border-radius: 10px; border: 1px solid var(--border-color);">
+                            <div style="width: 32px; height: 32px; border-radius: 8px; background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(139, 92, 246, 0.2)); display: flex; align-items: center; justify-content: center; font-weight: 600; color: ${rankColor};">${item.rank}</div>
+                            <div style="flex: 1;">
+                                <div style="color: var(--text-primary); font-weight: 500;">${item.title}</div>
+                                <div style="color: var(--text-secondary); font-size: 12px; margin-top: 4px;">热度: ${item.heat.toLocaleString()}</div>
+                            </div>
+                            <div style="font-size: 18px; color: ${trendColor};">${trendIcon}</div>
+                        </div>
+                    `;
+                });
+                
+                html += '</div>';
+                container.innerHTML = html;
+            } catch (error) {
+                console.error('加载热点数据失败:', error);
+                container.innerHTML = '<div style="text-align: center; color: var(--danger-color);">加载失败</div>';
+            }
+        }
+
+        // 去水印
+        async function removeWatermark() {
+            const url = document.getElementById('video-url').value;
+            
+            if (!url.trim()) {
+                showToast('请输入视频URL', 'warning');
+                return;
+            }
+            
+            const btn = document.querySelector('#page-tools .btn-primary');
+            const originalText = btn.textContent;
+            btn.textContent = '处理中...';
+            btn.disabled = true;
+            
+            try {
+                const response = await fetch('/api/video/remove-watermark', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    const data = result.data;
+                    const resultDiv = document.getElementById('watermark-result');
+                    resultDiv.style.display = 'block';
+                    resultDiv.innerHTML = `
+                        <div style="margin-top: 16px; padding: 16px; background: var(--card-bg); border-radius: 10px; border: 1px solid var(--border-color);">
+                            <h4 style="margin-bottom: 12px; color: var(--text-primary);">📹 视频信息</h4>
+                            <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 16px;">
+                                <div>
+                                    <img src="${data.coverUrl}" alt="封面" style="width: 100%; border-radius: 8px;">
+                                </div>
+                                <div>
+                                    <div style="margin-bottom: 8px;"><strong style="color: var(--text-primary);">标题:</strong> <span style="color: var(--text-secondary);">${data.title}</span></div>
+                                    <div style="margin-bottom: 8px;"><strong style="color: var(--text-primary);">作者:</strong> <span style="color: var(--text-secondary);">${data.author}</span></div>
+                                    <div style="margin-bottom: 8px;"><strong style="color: var(--text-primary);">描述:</strong> <span style="color: var(--text-secondary);">${data.description}</span></div>
+                                    <div style="margin-bottom: 8px;"><strong style="color: var(--text-primary);">播放量:</strong> <span style="color: var(--text-secondary);">${data.views.toLocaleString()}</span></div>
+                                    <div style="margin-bottom: 8px;"><strong style="color: var(--text-primary);">点赞:</strong> <span style="color: var(--text-secondary);">${data.likes.toLocaleString()}</span></div>
+                                    <div style="margin-bottom: 8px;"><strong style="color: var(--text-primary);">评论:</strong> <span style="color: var(--text-secondary);">${data.comments.toLocaleString()}</span></div>
+                                    <div style="margin-top: 12px;">
+                                        <a href="${data.videoUrl}" target="_blank" class="btn btn-primary" style="text-decoration: none; display: inline-block;">查看原视频</a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                    showToast('去水印成功！', 'success');
+                } else {
+                    showToast('去水印失败: ' + (result.message || '未知错误'), 'error');
+                }
+            } catch (error) {
+                console.error('去水印失败:', error);
+                showToast('去水印失败: ' + error.message, 'error');
+            } finally {
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }
+        }
+
+        // 显示添加用户模态框
+        function showAddUserModal() {
+            document.getElementById('modal-title').textContent = '添加用户';
+            document.getElementById('modal-body').innerHTML = `
+                <div class="form-group">
+                    <label class="form-label">用户名</label>
+                    <input type="text" class="form-input" id="new-username" placeholder="请输入用户名">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">手机号</label>
+                    <input type="text" class="form-input" id="new-phone" placeholder="请输入手机号">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">显示名称</label>
+                    <input type="text" class="form-input" id="new-displayname" placeholder="请输入显示名称">
+                </div>
+            `;
+            document.getElementById('modal-confirm').onclick = addUser;
+            document.getElementById('modal-overlay').classList.add('active');
+        }
+
+        // 添加用户
+        async function addUser() {
+            const username = document.getElementById('new-username').value;
+            const phone = document.getElementById('new-phone').value;
+            const displayName = document.getElementById('new-displayname').value;
+            
+            if (!username || !phone) {
+                showToast('请填写必填项', 'warning');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/users', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, phone, displayName, password: '123456' })
+                });
+                
+                if (response.ok) {
+                    showToast('用户添加成功', 'success');
+                    closeModal();
+                    loadUsers();
+                } else {
+                    showToast('添加失败', 'error');
+                }
+            } catch (error) {
+                console.error('添加用户失败:', error);
+                showToast('添加失败: ' + error.message, 'error');
+            }
+        }
+
+        // 设置当前用户
+        async function setCurrentUser(userId) {
+            try {
+                const response = await fetch(`/api/users/${userId}/current`, {
+                    method: 'PUT'
+                });
+                
+                if (response.ok) {
+                    showToast('已设置为当前用户', 'success');
+                    loadUsers();
+                } else {
+                    showToast('设置失败', 'error');
+                }
+            } catch (error) {
+                console.error('设置当前用户失败:', error);
+                showToast('设置失败: ' + error.message, 'error');
+            }
+        }
+
+        // 删除用户
+        async function deleteUser(userId) {
+            if (!confirm('确定要删除该用户吗？')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/users/${userId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    showToast('用户删除成功', 'success');
+                    loadUsers();
+                } else {
+                    showToast('删除失败', 'error');
+                }
+            } catch (error) {
+                console.error('删除用户失败:', error);
+                showToast('删除失败: ' + error.message, 'error');
+            }
+        }
+
+        // 删除浏览器环境
+        async function deleteBrowserEnv(envId) {
+            if (!confirm('确定要删除该浏览器环境吗？')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/browser-environments/${envId}`, {
+                    method: 'DELETE'
+                });
+                
+                if (response.ok) {
+                    showToast('环境删除成功', 'success');
+                    loadBrowserEnvironments();
+                } else {
+                    showToast('删除失败', 'error');
+                }
+            } catch (error) {
+                console.error('删除浏览器环境失败:', error);
+                showToast('删除失败: ' + error.message, 'error');
+            }
+        }
+
+        // 关闭模态框
+        function closeModal() {
+            document.getElementById('modal-overlay').classList.remove('active');
+        }
+
+        // 显示Toast通知
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            
+            const icons = {
+                success: '✅',
+                error: '❌',
+                warning: '⚠️'
+            };
+            
+            toast.innerHTML = `
+                <div class="toast-icon">${icons[type]}</div>
+                <div class="toast-message">${message}</div>
+            `;
+            
+            container.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.style.animation = 'slideIn 0.3s ease reverse';
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        // 初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            loadHomeStats();
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,928 @@
+{
+  "name": "小红书｜笔记克隆生成发布",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "// ⚠️ 确认发布检查点 ⚠️\n// \n// 📋 发布前请确认：\n// 1. 在\"HTML预览\"节点查看生成的内容\n// 2. 确认标题、正文、标签、图片都正确无误\n// 3. 确认后，此节点会将正确的JSON数据传递给发布流程\n// \n// 💡 此节点会透传原始数据，不做任何修改\n\nconst data = $input.first().json;\n\n// 验证必需字段\nif (!data.title || !data.content || !data.images || data.images.length === 0) {\n  throw new Error('❌ 数据不完整：缺少必需字段（title/content/images）');\n}\n\n// 输出日志供确认\nconsole.log('📋 准备发布的内容：');\nconsole.log('标题:', data.title);\nconsole.log('正文长度:', data.content.length, '字');\nconsole.log('标签:', data.tags);\nconsole.log('图片数量:', data.images.length);\nconsole.log('原笔记ID:', data.originalNoteId);\n\n// 透传原始数据\nreturn [$input.first().json];"
+      },
+      "id": "39edc541-7f9b-461b-8652-832de9d2b3b3",
+      "name": "✅确认发布",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3360,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "endpointUrl": "http://47.109.91.65:18060/mcp",
+        "tool": {
+          "__rl": true,
+          "value": "publish_content",
+          "mode": "list",
+          "cachedResultName": "publish_content"
+        },
+        "parameters": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "images": "={{ $('组装最终内容').item.json.images }}",
+            "content": "={{ $('组装最终内容').item.json.content }}",
+            "title": "={{ $('组装最终内容').item.json.title }}",
+            "tags": "={{ $('组装最终内容').item.json.tags }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "content",
+              "displayName": "content",
+              "defaultMatch": false,
+              "required": true,
+              "display": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "images",
+              "displayName": "images",
+              "defaultMatch": false,
+              "required": true,
+              "display": true,
+              "type": "array",
+              "defaultValue": "[\n  \"string\"\n]",
+              "removed": false
+            },
+            {
+              "id": "tags",
+              "displayName": "tags",
+              "defaultMatch": false,
+              "required": false,
+              "display": true,
+              "type": "array",
+              "defaultValue": "[\n  \"string\"\n]",
+              "removed": false
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "defaultMatch": false,
+              "required": true,
+              "display": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "convertToBinary": true
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1,
+      "position": [
+        4256,
+        0
+      ],
+      "id": "ee3c0302-cefa-4015-971c-37d6ed16da49",
+      "name": "发布到小红书"
+    },
+    {
+      "parameters": {
+        "operation": "upsert",
+        "dataTableId": {
+          "__rl": true,
+          "value": "hqQlHmeYfivx3ByD",
+          "mode": "list",
+          "cachedResultName": "notes",
+          "cachedResultUrl": "/projects/ldZnw1KjOTfKmBAE/datatables/hqQlHmeYfivx3ByD"
+        },
+        "filters": {
+          "conditions": [
+            {
+              "keyName": "=title",
+              "keyValue": "={{ $('组装最终内容').item.json.title }}"
+            }
+          ]
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "title": "={{ $('组装最终内容').item.json.title }}",
+            "content": "={{ $('组装最终内容').item.json.content }}",
+            "tags": "={{ $('组装最终内容').item.json.tags.join(\",\") }}",
+            "images": "={{ $('组装最终内容').item.json.images.join(\",\") }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "content",
+              "displayName": "content",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "tags",
+              "displayName": "tags",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "images",
+              "displayName": "images",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        4256,
+        208
+      ],
+      "id": "dcd3bded-35b2-4730-8200-9d73f96bc749",
+      "name": "保存到数据表"
+    },
+    {
+      "parameters": {
+        "resume": "specificTime",
+        "dateTime": "={{ $json.query.publishTime || $now }}"
+      },
+      "id": "eaaf9391-b76e-4027-8d48-e170d5fcbb89",
+      "name": "⏰定时发布",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3808,
+        0
+      ],
+      "webhookId": "clone-timer-publish"
+    },
+    {
+      "parameters": {
+        "resume": "webhook",
+        "options": {}
+      },
+      "id": "d74d0611-64cb-4be5-b0f9-c92a4718730c",
+      "name": "⏳等待确认",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        3584,
+        0
+      ],
+      "webhookId": "clone-wait-confirm"
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html"
+              }
+            ]
+          }
+        }
+      },
+      "id": "5b1cd32f-a0fd-46ba-bc8a-a854fc588ff4",
+      "name": "发送预览",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        3360,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\n// 构造图片 HTML\nconst imagesHtml = data.images\n  .map(url => `<img src=\"${url}\" class=\"slide-img\" />`)\n  .join('');\n  \n// 构造标签 HTML\nconst tagsHtml = Array.isArray(data.tags) ? data.tags.join(' ') : data.tags;\n\n// 优先使用 n8n 注入的官方 Resume URL\nconst n8nResumeUrl = $execution.resumeUrl || '';\n\n// 构造完整 HTML 页面\nconst html = `<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n  <meta charset=\"UTF-8\" />\n  <title>小红书克隆笔记预览</title>\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n\n  <style>\n    body {\n      margin: 0;\n      padding: 20px;\n      background: #f6f6f6;\n      font-family: -apple-system, BlinkMacSystemFont, \"PingFang SC\", Arial;\n    }\n\n    .card {\n      max-width: 420px;\n      margin: 0 auto;\n      background: #fff;\n      border-radius: 14px;\n      overflow: hidden;\n      box-shadow: 0 10px 28px rgba(0,0,0,0.08);\n    }\n\n    /* Carousel Container */\n    .carousel-wrapper {\n      position: relative;\n      background: #000;\n    }\n\n    .images {\n      display: flex;\n      overflow-x: auto;\n      scroll-snap-type: x mandatory;\n      -webkit-overflow-scrolling: touch;\n      scrollbar-width: none; /* Firefox */\n      scroll-behavior: smooth;\n    }\n    .images::-webkit-scrollbar {\n      display: none; /* Chrome/Safari */\n    }\n\n    .images img {\n      width: 100%;\n      height: auto;\n      flex-shrink: 0;\n      scroll-snap-align: center;\n      aspect-ratio: 3/4;\n      object-fit: contain;\n      display: block;\n    }\n\n    /* Navigation Arrows */\n    .nav-btn {\n        position: absolute;\n        top: 50%;\n        transform: translateY(-50%);\n        background: rgba(255, 255, 255, 0.2);\n        border: none;\n        border-radius: 50%;\n        width: 32px;\n        height: 32px;\n        cursor: pointer;\n        display: flex;\n        align-items: center;\n        justify-content: center;\n        color: white;\n        font-size: 18px;\n        transition: background 0.3s;\n        z-index: 10;\n    }\n    .nav-btn:hover {\n        background: rgba(255, 255, 255, 0.4);\n    }\n    .nav-btn.prev { left: 10px; }\n    .nav-btn.next { right: 10px; }\n\n    /* Content Area */\n    .content {\n      padding: 16px;\n    }\n\n    h1 {\n      font-size: 18px;\n      margin: 0 0 12px;\n      line-height: 1.4;\n      font-weight: 600;\n    }\n\n    .text {\n      font-size: 14px;\n      line-height: 1.7;\n      color: #333;\n      white-space: pre-wrap;\n    }\n\n    .tags {\n      margin-top: 12px;\n      color: #1e80ff;\n      font-size: 13px;\n    }\n\n    /* Status Bar */\n    .status {\n      padding: 12px;\n      background: #fafafa;\n      text-align: center;\n      font-size: 13px;\n      color: #666;\n      border-top: 1px solid #eee;\n    }\n\n    /* Action Buttons */\n    .actions {\n      padding: 16px;\n      display: flex;\n      gap: 12px;\n    }\n\n    .btn {\n      flex: 1;\n      padding: 12px;\n      border: none;\n      border-radius: 8px;\n      font-size: 14px;\n      font-weight: 600;\n      cursor: pointer;\n      transition: all 0.3s;\n    }\n\n    .btn-confirm {\n      background: #ff2442;\n      color: white;\n    }\n    .btn-confirm:hover {\n      background: #e02038;\n    }\n\n    .btn-cancel {\n      background: #f5f5f5;\n      color: #666;\n    }\n    .btn-cancel:hover {\n      background: #e8e8e8;\n    }\n\n    /* Publish Time Picker */\n    .time-picker {\n      margin-top: 12px;\n      padding: 12px;\n      background: #f9f9f9;\n      border-radius: 8px;\n    }\n    .time-picker label {\n      display: block;\n      font-size: 13px;\n      color: #666;\n      margin-bottom: 8px;\n    }\n    .time-picker input {\n      width: 100%;\n      padding: 8px 12px;\n      border: 1px solid #ddd;\n      border-radius: 6px;\n      font-size: 14px;\n    }\n  </style>\n</head>\n\n<body>\n  <div class=\"card\">\n    <!-- Carousel -->\n    <div class=\"carousel-wrapper\">\n      <div class=\"images\" id=\"carousel\">\n        ${imagesHtml}\n      </div>\n      <button class=\"nav-btn prev\" onclick=\"scrollCarousel(-1)\">‹</button>\n      <button class=\"nav-btn next\" onclick=\"scrollCarousel(1)\">›</button>\n    </div>\n\n    <!-- Content -->\n    <div class=\"content\">\n      <h1>${data.title}</h1>\n      <div class=\"text\">${data.content}</div>\n      <div class=\"tags\">${tagsHtml}</div>\n    </div>\n\n    <!-- Status -->\n    <div class=\"status\">✨ 基于原笔记克隆生成的新内容</div>\n\n    <!-- Time Picker -->\n    <div class=\"time-picker\">\n      <label>⏰ 选择发布时间（留空则立即发布）</label>\n      <input type=\"datetime-local\" id=\"publishTime\" />\n    </div>\n\n    <!-- Actions -->\n    <div class=\"actions\">\n      <button class=\"btn btn-cancel\" onclick=\"cancelPublish()\">取消</button>\n      <button class=\"btn btn-confirm\" onclick=\"confirmPublish()\">确认发布</button>\n    </div>\n  </div>\n\n  <script>\n    // Carousel Navigation\n    function scrollCarousel(direction) {\n      const carousel = document.getElementById('carousel');\n      const scrollAmount = carousel.offsetWidth;\n      carousel.scrollBy({ left: direction * scrollAmount, behavior: 'smooth' });\n    }\n\n    // Confirm Publish\n    function confirmPublish() {\n      const publishTime = document.getElementById('publishTime').value;\n      const url = '${n8nResumeUrl}';\n      const separator = url.includes('?') ? '&' : '?';\n      \n      if (publishTime) {\n        window.location.href = url + separator + 'action=confirm&publishTime=' + encodeURIComponent(publishTime);\n      } else {\n        window.location.href = url + separator + 'action=confirm';\n      }\n    }\n\n    // Cancel Publish\n    function cancelPublish() {\n      const url = '${n8nResumeUrl}';\n      const separator = url.includes('?') ? '&' : '?';\n      window.location.href = url + separator + 'action=cancel';\n    }\n  </script>\n</body>\n</html>`;\n\nreturn [{ json: { html } }];"
+      },
+      "id": "19412bd2-215a-414b-ab9c-63cd0df6f53a",
+      "name": "生成预览HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3136,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const allItems = $input.all();\n\nconst textItem = allItems[0]?.json || {};\nconst coverItem = allItems[1]?.json || {};\nconst contentImageItem = allItems[2]?.json || {};\n\nconst title = textItem.title || \"\";\nconst content = textItem.content || \"\";\n\n// ===== 标签规范化 =====\nlet tagsRaw = textItem.tags || [];\nlet tags = [];\n\n// 情况 1：tags 是字符串 \"#a,#b\"\nif (typeof tagsRaw === \"string\") {\n  tags = tagsRaw\n    .split(\",\")\n    .map(t => t.trim())\n    .filter(Boolean);\n}\n\n// 情况 2：tags 是数组 [\"a\", \"#b\"]\nif (Array.isArray(tagsRaw)) {\n  tags = tagsRaw.map(t => String(t).trim()).filter(Boolean);\n}\n\n// 统一补 #\ntags = tags.map(t => (t.startsWith(\"#\") ? t : `#${t}`));\n\n// ===== 图片合并 =====\nconst images = [\n  coverItem?.data?.[0]?.url,\n  ...(contentImageItem?.data || []).map(i => i.url)\n].filter(Boolean);\n\n// ===== 输出 =====\nreturn [\n  {\n    json: {\n      title,\n      content,\n      tags,\n      images,\n      originalNoteId: textItem.originalNoteId || ''\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2768,
+        16
+      ],
+      "id": "00d1ac49-33c5-4d4e-a8f9-55e515b6d3c1",
+      "name": "组装最终内容"
+    },
+    {
+      "parameters": {
+        "numberInputs": 3
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2416,
+        96
+      ],
+      "id": "1f7cf888-54ed-4358-b78c-84117c812909",
+      "name": "合并内容"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://ark.cn-beijing.volces.com/api/v3/images/generations",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n    \"model\": \"doubao-seedream-4-0-250828\",\n    \"prompt\": \"{{ $json.original_style_analysis }}\\n\\n{{ $json.content_images }}\\n\\n生成{{ $json.content_images_count }}张\\n\\n生成要求（必须严格遵守）：\\n- 图片中不出现乱码、假字、不可识别字符等错误内容\\n- 图片中无任何平台标识、角标、水印、Logo等元素\\n- 保持与原笔记相似的视觉风格和色彩方案\\n- 所有描述必须转化为清晰、具体、可视觉化的画面内容\\n- 使用视觉隐喻（图标、构图、色彩）代替文字\",\n    \"sequential_image_generation\": \"auto\",\n    \"sequential_image_generation_options\": {\"max_images\":4},\n    \"response_format\": \"url\",\n    \"size\": \"1728x2304\",\n    \"watermark\": false\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        2032,
+        -272
+      ],
+      "id": "1eba2a0c-6f31-4958-93ee-c1db354446bc",
+      "name": "生成内容图",
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "LbEnP8EQIlTtjOR6",
+          "name": "火山-生图-Bearer Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://ark.cn-beijing.volces.com/api/v3/images/generations",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n    \"model\": \"doubao-seedream-4-0-250828\",\n    \"prompt\": \"{{ $json.original_style_analysis }}\\n\\n{{ $json.cover_image }}\\n\\n生成要求（必须严格遵守）：\\n- 不出现乱码、不出现假字\\n- 无任何平台标识、无角标、无水印、无Logo\\n- 保持与原笔记相似的视觉风格和色彩方案\\n- 使用清晰、具体、可被画面表达的描述\",\n    \"response_format\": \"url\",\n    \"size\": \"1728x2304\",\n    \"watermark\": false\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        1920,
+        -48
+      ],
+      "id": "f691ab73-eead-4cd7-9556-191f4a1574e6",
+      "name": "生成封面图",
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "LbEnP8EQIlTtjOR6",
+          "name": "火山-生图-Bearer Auth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 清理并解析配图 JSON 输出\nconst raw = $json.response || $json.output || $json.text || '';\n\n// 移除可能的 markdown 代码块标记\nlet cleaned = String(raw)\n  .replace(/^```json\\s*/i, '')\n  .replace(/^```\\s*/i, '')\n  .replace(/```\\s*$/i, '')\n  .trim();\n\n// 解析 JSON\ntry {\n  const parsed = JSON.parse(cleaned);\n  return [{ json: parsed }];\n} catch (e) {\n  // 如果解析失败，尝试提取 JSON 部分\n  const match = cleaned.match(/\\{[\\s\\S]*\\}/);\n  if (match) {\n    try {\n      const parsed = JSON.parse(match[0]);\n      return [{ json: parsed }];\n    } catch (e2) {\n      throw new Error('配图JSON解析失败: ' + e2.message + '\\n原始内容: ' + raw);\n    }\n  }\n  throw new Error('无法找到有效的配图JSON内容\\n原始内容: ' + raw);\n}"
+      },
+      "id": "6c4d2103-feaf-47d4-bdd9-8c1743a0be89",
+      "name": "图片Prompt解析",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1712,
+        -288
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=你是一位视觉设计专家，擅长分析图片风格并生成相似风格的新图片描述。\n\n【原始笔记图片】\n图片数量：{{ $json.originalImages.length }}\n\n【新笔记信息】\n标题：{{ $json.originalTitle }}\n正文：{{ $json.originalContent }}\n\n【任务】\n1. 分析原始图片的风格特征：\n   - 色彩方案（主色调、色彩饱和度）\n   - 构图方式（中心构图/对角线/三分法等）\n   - 视觉元素（图标、图形、文字排版等）\n   - 整体风格（清新/科技感/复古/简约等）\n   - 图片类型（实景图/插画/纯色背景等）\n\n2. 基于新笔记的内容和原始图片的风格，生成新的图片描述：\n   - 保持相同的视觉风格和色彩方案\n   - 根据新笔记内容调整具体的视觉元素\n   - 确保图片与新笔记的主题高度相关\n   - 生成1张封面图描述\n   - 生成2-3张内容图描述\n\n3. 输出格式（严格JSON）：\n{\n  \"original_style_analysis\":\"\",\n  \"cover_image\": \"封面图描述\",\n  \"content_images\": [\"内容图1描述\", \"内容图2描述\"],\n  \"content_images_count\": 4\n}\n\n⚠️ 注意：\n- 请快速生成，不需要解释，不需要分析。\n- 只输出JSON，不要任何解释\n- 描述要具体、可视觉化\n- 不要出现emoji等特殊字符\n- 不生成平台logo、水印",
+        "hasOutputParser": true
+      },
+      "id": "80228a37-3ea0-4357-a431-96c15b85bc62",
+      "name": "生成克隆图片Prompt",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.6,
+      "position": [
+        1024,
+        -448
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "doubao-seed-1-6-lite-251015",
+          "mode": "list",
+          "cachedResultName": "doubao-seed-1-6-lite-251015"
+        },
+        "builtInTools": {},
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        1024,
+        -272
+      ],
+      "id": "62e14155-81fe-444a-9ce8-25290fa17832",
+      "name": "火山-db1.8-img",
+      "credentials": {
+        "openAiApi": {
+          "id": "3iRvcAcvDVdKLy4T",
+          "name": "火山引擎-文本"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 清理并解析 JSON 输出\nconst raw = $json.response || $json.output || $json.text || '';\n\n// 移除可能的 markdown 代码块标记\nlet cleaned = String(raw)\n  .replace(/^```json\\s*/i, '')\n  .replace(/^```\\s*/i, '')\n  .replace(/```\\s*$/i, '')\n  .trim();\n\n// 解析 JSON\ntry {\n  const parsed = JSON.parse(cleaned);\n  return [{ json: parsed }];\n} catch (e) {\n  // 如果解析失败，尝试提取 JSON 部分\n  const match = cleaned.match(/\\{[\\s\\S]*\\}/);\n  if (match) {\n    try {\n      const parsed = JSON.parse(match[0]);\n      return [{ json: parsed }];\n    } catch (e2) {\n      throw new Error('JSON 解析失败: ' + e2.message + '\\n原始内容: ' + raw);\n    }\n  }\n  throw new Error('无法找到有效的 JSON 内容\\n原始内容: ' + raw);\n}"
+      },
+      "id": "c7f143d7-b432-47b4-aaa8-eceac4889c24",
+      "name": "文案JSON解析",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=你是一位小红书内容创作专家，擅长创作与参考笔记风格相似但内容原创的笔记。\n\n【原始笔记信息】\n标题：{{ $json.originalTitle }}\n\n正文：\n{{ $json.originalContent }}\n\n标签：{{ $json.originalTags.join(' ') }}\n\n【创作要求】\n1. 深度分析原始笔记的：\n   - 核心主题和观点\n   - 写作风格（口语化/正式/幽默/干货等）\n   - 内容结构（开头/中间/结尾）\n   - 受众定位\n   - 表达方式（是否使用emoji、分段方式等）\n\n2. 基于上述分析，创作一篇全新的笔记：\n   - 主题与原笔记相似，但内容必须完全原创\n   - 保持相同的写作风格和受众定位\n   - 使用相似的结构和表达方式\n   - 字数控制在原笔记字数的80%-120%\n   - 标题采用相同的吸引方式（如二极管标题法）\n\n3. 生成5个相关标签\n\n4. 输出格式（严格JSON）：\n{\n  \"title\": \"新标题\",\n  \"content\": \"新正文内容\",\n  \"tags\": [\"#标签1\", \"#标签2\", \"#标签3\", \"#标签4\", \"#标签5\"]\n}\n\n⚠️ 注意：\n- 只输出JSON，不要任何解释\n- 内容必须原创，不能直接复制原文\n- 保持相似的风格但不同的表达",
+        "hasOutputParser": true
+      },
+      "id": "35aa49ce-e105-470c-9755-915e1b58fa15",
+      "name": "生成克隆文案",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.6,
+      "position": [
+        976,
+        -96
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "glm-4-7-251222",
+          "mode": "list",
+          "cachedResultName": "glm-4-7-251222"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        960,
+        64
+      ],
+      "id": "e707177d-5dc3-45a2-95f6-3a28f360755b",
+      "name": "火山-db1.8",
+      "credentials": {
+        "openAiApi": {
+          "id": "3iRvcAcvDVdKLy4T",
+          "name": "火山引擎-文本"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const root = $input.first().json;\n\n// 安全取 content[0]\nconst contentBlock = root?.content?.[0];\nconst textBlock = contentBlock?.text;\nconst data = textBlock?.data || {};\nconst note = data.note || {};\n\n// ===== 基础字段 =====\nconst originalTitle = note.title || '';\nconst originalContent = note.desc || '';\nconst originalNoteId = note.noteId || '';\nconst xsecToken = note.xsecToken || '';\n\n// ===== 图片 =====\nconst originalImages = Array.isArray(note.imageList)\n  ? note.imageList.map(img => img.urlDefault || img.urlPre).filter(Boolean)\n  : [];\n\n// ===== 标签（从正文中提取 #话题）=====\nlet originalTags = [];\nif (typeof originalContent === 'string') {\n  const tagMatches = originalContent.match(/#([^#\\[\\]\\s]+)\\[话题\\]/g);\n  if (tagMatches) {\n    originalTags = tagMatches.map(t =>\n      '#' + t.replace(/[#\\[\\]话题]/g, '')\n    );\n  }\n}\n\n// ===== 输出 =====\nreturn [\n  {\n    json: {\n      originalTitle,\n      originalContent,\n      originalImages,\n      originalTags,\n      noteId: originalNoteId,\n      xsec_token: xsecToken\n    }\n  }\n];\n"
+      },
+      "id": "befd9e1f-b365-4f70-a229-5264e2a0d8f0",
+      "name": "提取笔记信息",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "endpointUrl": "http://47.109.91.65:18060/mcp",
+        "tool": {
+          "__rl": true,
+          "value": "get_feed_detail",
+          "mode": "list",
+          "cachedResultName": "get_feed_detail"
+        },
+        "parameters": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "feed_id": "={{ $json.noteId }}",
+            "xsec_token": "={{ $json.xsec_token }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "click_more_replies",
+              "displayName": "click_more_replies",
+              "defaultMatch": false,
+              "required": false,
+              "display": true,
+              "type": "boolean",
+              "removed": true
+            },
+            {
+              "id": "feed_id",
+              "displayName": "feed_id",
+              "defaultMatch": false,
+              "required": true,
+              "display": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "limit",
+              "displayName": "limit",
+              "defaultMatch": false,
+              "required": false,
+              "display": true,
+              "type": "number",
+              "removed": true
+            },
+            {
+              "id": "load_all_comments",
+              "displayName": "load_all_comments",
+              "defaultMatch": false,
+              "required": false,
+              "display": true,
+              "type": "boolean",
+              "removed": true
+            },
+            {
+              "id": "reply_limit",
+              "displayName": "reply_limit",
+              "defaultMatch": false,
+              "required": false,
+              "display": true,
+              "type": "number",
+              "removed": true
+            },
+            {
+              "id": "scroll_speed",
+              "displayName": "scroll_speed",
+              "defaultMatch": false,
+              "required": false,
+              "display": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "xsec_token",
+              "displayName": "xsec_token",
+              "defaultMatch": false,
+              "required": true,
+              "display": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.mcpClient",
+      "typeVersion": 1,
+      "position": [
+        448,
+        0
+      ],
+      "id": "cc931fb2-1214-45e6-9547-be1ab2bf37b4",
+      "name": "获取笔记内容"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1️⃣ 读取用户输入的 URL（兼容 body / query / 直接字段）\nconst raw =\n  $json.body?.url ||\n  $json.query?.url ||\n  $json.url ||\n  \"\";\n\n// 清理 URL\nconst url = raw.trim();\n\nif (!url) {\n  throw new Error(\"❌ 请提供小红书笔记 URL\");\n}\n\n// 2️⃣ 校验是否为小红书链接\nif (!url.includes(\"xiaohongshu.com\") && !url.includes(\"xhslink.com\")) {\n  throw new Error(\"❌ 请提供有效的小红书笔记 URL\");\n}\n\n// 3️⃣ 提取 noteId（支持 explore / discovery / noteId 参数）\nlet noteId = \"\";\n\n// 常见路径形式\nconst noteIdPatterns = [\n  /\\/explore\\/([a-f0-9]+)/i,\n  /\\/discovery\\/item\\/([a-f0-9]+)/i,\n  /noteId=([a-f0-9]+)/i\n];\n\nfor (const pattern of noteIdPatterns) {\n  const match = url.match(pattern);\n  if (match) {\n    noteId = match[1];\n    break;\n  }\n}\n\nif (!noteId) {\n  throw new Error(\"❌ 无法从 URL 中提取笔记 noteId\");\n}\n\n// 4️⃣ 提取 xsec_token（URL 参数）\nlet xsec_token = \"\";\n\nconst tokenMatch = url.match(/[?&]xsec_token=([^&]+)/i);\nif (tokenMatch) {\n  xsec_token = decodeURIComponent(tokenMatch[1]);\n}\n\nif (!xsec_token) {\n  throw new Error(\"❌ URL 中缺少 xsec_token 参数\");\n}\n\n// 5️⃣ 输出统一结构\nreturn [\n  {\n    json: {\n      url,\n      noteId,\n      xsec_token\n    }\n  }\n];\n"
+      },
+      "id": "8c5d3590-232b-4d82-8262-7e2cf41a9676",
+      "name": "解析笔记URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        224,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "xhs-clone-generate",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "42a87741-46ca-4566-b1cf-20be7231bd7b",
+      "name": "克隆入口",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "xhs-clone-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 1. 构造 HTML 表单\n// action 指向实际处理的 Webhook UUID 路径\nconst targetWebhook = 'xhs-clone-generate';\n\nconst html = `\n<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n  <meta charset=\"UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <title>小红书笔记克隆</title>\n  <style>\n    body {\n      font-family: -apple-system, BlinkMacSystemFont, \"PingFang SC\", \"Microsoft YaHei\", sans-serif;\n      background-color: #f7f7f7;\n      display: flex;\n      justify-content: center;\n      align-items: center;\n      min-height: 100vh;\n      margin: 0;\n    }\n    .container {\n      background: white;\n      padding: 2rem;\n      border-radius: 16px;\n      box-shadow: 0 4px 20px rgba(0,0,0,0.08);\n      width: 100%;\n      max-width: 500px;\n    }\n    h2 {\n      text-align: center;\n      color: #333;\n      margin-bottom: 1.5rem;\n    }\n    textarea {\n      width: 100%;\n      height: 200px;\n      padding: 1rem;\n      border: 2px solid #eee;\n      border-radius: 12px;\n      font-size: 16px;\n      resize: vertical;\n      outline: none;\n      box-sizing: border-box;\n      transition: border-color 0.3s;\n    }\n    textarea:focus {\n      border-color: #ff2442;\n    }\n    button {\n      width: 100%;\n      padding: 1rem;\n      margin-top: 1.5rem;\n      background-color: #ff2442;\n      color: white;\n      border: none;\n      border-radius: 12px;\n      font-size: 18px;\n      font-weight: bold;\n      cursor: pointer;\n      transition: background-color 0.3s, transform 0.1s;\n    }\n    button:hover {\n      background-color: #e02038;\n    }\n    button:active {\n      transform: scale(0.98);\n    }\n    .tip {\n      margin-top: 1rem;\n      font-size: 0.9rem;\n      color: #888;\n      text-align: center;\n    }\n  </style>\n</head>\n<body>\n  <div class=\"container\">\n    <h2>📝 小红书笔记生成</h2>\n    <form action=\"${targetWebhook}\" method=\"POST\">\n      <textarea name=\"url\" placeholder=\"请输入小红书笔记URL\" required></textarea>\n      <button type=\"submit\">✨ 开始生成预览</button>\n      <p class=\"tip\">生成可能需要 15-30 秒，请耐心等待跳转...</p>\n    </form>\n  </div>\n</body>\n</html>\n`;\n\nreturn { html };"
+      },
+      "id": "f33b4cbb-29d5-44d0-810d-6321e377aff0",
+      "name": "构造表单HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        80,
+        -448
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "={{ $json.html }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/html"
+              }
+            ]
+          }
+        }
+      },
+      "id": "40ee8dc8-f21e-48ea-b18d-d6cebc780a2a",
+      "name": "显示输入表单",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        192,
+        -448
+      ]
+    },
+    {
+      "parameters": {
+        "path": "xhs-start-clone",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "4a73edb8-c44b-4863-bfea-27cb1b20b355",
+      "name": "表单入口",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -32,
+        -448
+      ],
+      "webhookId": "14d9711a-7ca9-4be8-92ad-67f7a8c3ba9e"
+    }
+  ],
+  "pinData": {
+    "克隆入口": [
+      {
+        "json": {
+          "headers": {
+            "host": "n8n-ryneirky.us-east-1.clawcloudrun.com",
+            "content-length": "162",
+            "cache-control": "max-age=0",
+            "sec-ch-ua": "\"Google Chrome\";v=\"143\", \"Chromium\";v=\"143\", \"Not A(Brand\";v=\"24\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"Windows\"",
+            "origin": "null",
+            "content-type": "application/x-www-form-urlencoded",
+            "upgrade-insecure-requests": "1",
+            "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "sec-fetch-site": "cross-site",
+            "sec-fetch-mode": "navigate",
+            "sec-fetch-user": "?1",
+            "sec-fetch-dest": "document",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7",
+            "priority": "u=0, i",
+            "x-forwarded-for": "140.238.37.247",
+            "x-forwarded-proto": "https",
+            "x-envoy-original-host": "n8n-ryneirky.us-east-1.clawcloudrun.com",
+            "x-envoy-external-address": "140.238.37.247",
+            "x-request-id": "b77a2262-98cb-4cfb-8b3d-3d8a2aff988f",
+            "x-envoy-decorator-operation": "n8n-zefsijen.ns-2gv6lw1y.svc.cluster.local:5678/()(.*).*",
+            "x-envoy-attempt-count": "1",
+            "req-start-time": "1768964189672",
+            "x-real-ip": "140.238.37.247",
+            "x-envoy-route-identifier": "true"
+          },
+          "params": {},
+          "query": {},
+          "body": {
+            "url": "https://www.xiaohongshu.com/explore/696f21c8000000001a01fb86?xsec_token=AB8Esr9JzC0ivU-ahqyZkrA9Tl3xmVv_So9kWAesdSK5c=&xsec_source=pc_user"
+          },
+          "webhookUrl": "https://n8n-ryneirky.us-east-1.clawcloudrun.com/webhook/xhs-clone-generate",
+          "executionMode": "production"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
+  "connections": {
+    "✅确认发布": {
+      "main": [
+        [
+          {
+            "node": "生成预览HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "⏰定时发布": {
+      "main": [
+        [
+          {
+            "node": "发布到小红书",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "保存到数据表",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "⏳等待确认": {
+      "main": [
+        [
+          {
+            "node": "⏰定时发布",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "发送预览": {
+      "main": [
+        [
+          {
+            "node": "⏳等待确认",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "生成预览HTML": {
+      "main": [
+        [
+          {
+            "node": "发送预览",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "组装最终内容": {
+      "main": [
+        [
+          {
+            "node": "✅确认发布",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "合并内容": {
+      "main": [
+        [
+          {
+            "node": "组装最终内容",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "生成内容图": {
+      "main": [
+        [
+          {
+            "node": "合并内容",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "生成封面图": {
+      "main": [
+        [
+          {
+            "node": "合并内容",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "图片Prompt解析": {
+      "main": [
+        [
+          {
+            "node": "生成内容图",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "生成封面图",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "生成克隆图片Prompt": {
+      "main": [
+        [
+          {
+            "node": "图片Prompt解析",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "火山-db1.8-img": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "生成克隆图片Prompt",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "文案JSON解析": {
+      "main": [
+        [
+          {
+            "node": "合并内容",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "生成克隆文案": {
+      "main": [
+        [
+          {
+            "node": "文案JSON解析",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "火山-db1.8": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "生成克隆文案",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "提取笔记信息": {
+      "main": [
+        [
+          {
+            "node": "生成克隆图片Prompt",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "生成克隆文案",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "获取笔记内容": {
+      "main": [
+        [
+          {
+            "node": "提取笔记信息",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "解析笔记URL": {
+      "main": [
+        [
+          {
+            "node": "获取笔记内容",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "克隆入口": {
+      "main": [
+        [
+          {
+            "node": "解析笔记URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "构造表单HTML": {
+      "main": [
+        [
+          {
+            "node": "显示输入表单",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "表单入口": {
+      "main": [
+        [
+          {
+            "node": "构造表单HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": false
+  },
+  "versionId": "55bc4c2f-4308-47c1-9aa6-c44ed355cea9",
+  "meta": {
+    "instanceId": "24d1029a95c23bce7943e6b7ccf730ff90a74df4094f4f597034760d7c386159"
+  },
+  "id": "jMrsv6mHVFA9zBOPyYtsl",
+  "tags": []
+}
