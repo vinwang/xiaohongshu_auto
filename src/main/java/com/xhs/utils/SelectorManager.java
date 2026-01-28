@@ -24,12 +24,11 @@ public class SelectorManager {
     private static final Logger logger = LoggerFactory.getLogger(SelectorManager.class);
     private static final String SELECTORS_PATH = "config/selectors.json";
     
-    private final ObjectMapper objectMapper;
+    private final ObjectMapper objectMapper = new ObjectMapper();
     private JsonNode selectors;
     private final Map<String, String> cachedWorkingSelectors;
-    
-    public SelectorManager(ObjectMapper objectMapper) {
-        this.objectMapper = objectMapper;
+
+    public SelectorManager() {
         this.cachedWorkingSelectors = new HashMap<>();
     }
     

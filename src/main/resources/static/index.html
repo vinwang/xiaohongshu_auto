@@ -1329,6 +1329,53 @@
             document.getElementById('modal-overlay').classList.add('active');
         }
 
+        // 显示添加浏览器环境模态框
+        async function showAddBrowserEnvModal() {
+            let currentUser = null;
+            try {
+                const response = await fetch('/api/users/current');
+                if (response.ok) {
+                    currentUser = await response.json();
+                }
+            } catch (error) {
+                console.error('获取当前用户失败:', error);
+            }
+
+            const currentUserLabel = currentUser
+                ? `当前用户: ${currentUser.displayName || currentUser.username || currentUser.id}`
+                : '未设置当前用户，请先在用户管理中设为当前用户';
+
+            document.getElementById('modal-title').textContent = '添加浏览器环境';
+            document.getElementById('modal-body').innerHTML = `
+                <div class="form-group" style="color: var(--text-secondary); font-size: 12px;">
+                    ${currentUserLabel}
+                </div>
+                <input type="hidden" id="current-user-id" value="${currentUser ? currentUser.id : ''}">
+                <div class="form-group">
+                    <label class="form-label">环境名称</label>
+                    <input type="text" class="form-input" id="env-name" placeholder="请输入环境名称">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">是否启用</label>
+                    <input type="checkbox" id="env-active" checked> 启用
+                </div>
+                <div class="form-group">
+                    <label class="form-label">是否默认</label>
+                    <input type="checkbox" id="env-default"> 默认
+                </div>
+                <div class="form-group">
+                    <label class="form-label">地理位置纬度（可选）</label>
+                    <input type="text" class="form-input" id="env-lat" placeholder="例如：31.2304">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">地理位置经度（可选）</label>
+                    <input type="text" class="form-input" id="env-lng" placeholder="例如：121.4737">
+                </div>
+            `;
+            document.getElementById('modal-confirm').onclick = addBrowserEnv;
+            document.getElementById('modal-overlay').classList.add('active');
+        }
+
         // 添加用户
         async function addUser() {
             const username = document.getElementById('new-username').value;
@@ -1356,6 +1403,53 @@
                 }
             } catch (error) {
                 console.error('添加用户失败:', error);
+                showToast('添加失败: ' + error.message, 'error');
+            }
+        }
+
+        // 添加浏览器环境
+        async function addBrowserEnv() {
+            const userId = document.getElementById('current-user-id').value;
+            const name = document.getElementById('env-name').value;
+            const isActive = document.getElementById('env-active').checked;
+            const isDefault = document.getElementById('env-default').checked;
+            const geolocationLatitude = document.getElementById('env-lat').value.trim();
+            const geolocationLongitude = document.getElementById('env-lng').value.trim();
+
+            if (!userId) {
+                showToast('请先设置当前用户', 'warning');
+                return;
+            }
+
+            if (!name.trim()) {
+                showToast('请填写环境名称', 'warning');
+                return;
+            }
+
+            const payload = {
+                name: name.trim(),
+                isActive,
+                isDefault,
+                geolocationLatitude: geolocationLatitude || null,
+                geolocationLongitude: geolocationLongitude || null
+            };
+
+            try {
+                const response = await fetch(`/api/browser-environments/user/${userId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (response.ok) {
+                    showToast('环境添加成功', 'success');
+                    closeModal();
+                    loadBrowserEnvironments();
+                } else {
+                    showToast('添加失败', 'error');
+                }
+            } catch (error) {
+                console.error('添加环境失败:', error);
                 showToast('添加失败: ' + error.message, 'error');
             }
         }
