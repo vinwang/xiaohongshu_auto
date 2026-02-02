@@ -20,7 +20,8 @@ public interface AIAdapter {
 
     /**
      * 测试AI模型连接
+     * @param modelName 模型名称(可选)
      * @return 是否连接成功
      */
-    boolean testConnection() throws Exception;
+    boolean testConnection(String modelName) throws Exception;
 }

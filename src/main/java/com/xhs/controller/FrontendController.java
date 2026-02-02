@@ -1,5 +1,7 @@
 package com.xhs.controller;
 
+import com.xhs.dto.ContentGenerationRequest;
+import com.xhs.dto.ContentGenerationResponse;
 import com.xhs.service.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -51,10 +53,19 @@ public class FrontendController {
         try {
             String type = (String) request.get("type");
             String prompt = (String) request.get("prompt");
-            Long userId = request.get("userId") != null ? 
+            Long userId = request.get("userId") != null ?
                 Long.valueOf(request.get("userId").toString()) : null;
             
-            Map<String, Object> result = contentGenerationService.generateContent(type, prompt, userId);
+            ContentGenerationRequest contentRequest = new ContentGenerationRequest();
+            contentRequest.setInputText(prompt);
+            contentRequest.setAiModelType(type);
+            
+            ContentGenerationResponse response = contentGenerationService.generateContent(contentRequest);
+            
+            Map<String, Object> result = new HashMap<>();
+            result.put("success", response.getSuccess());
+            result.put("content", response.getContent());
+            result.put("error", response.getMessage());
             
             return ResponseEntity.ok(result);
         } catch (Exception e) {

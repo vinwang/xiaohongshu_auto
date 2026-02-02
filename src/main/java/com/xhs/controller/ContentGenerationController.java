@@ -1,110 +1,105 @@
 package com.xhs.controller;
 
-import com.xhs.analysis.ContentAnalysis;
+import com.xhs.dto.ContentGenerationRequest;
+import com.xhs.dto.ContentGenerationResponse;
+import com.xhs.dto.CoverTemplateDTO;
 import com.xhs.service.ContentGenerationService;
+import com.xhs.service.TemplateService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import jakarta.validation.Valid;
+import java.util.List;
 import java.util.Map;
 
+/**
+ * 内容生成控制器
+ */
+@Slf4j
 @RestController
 @RequestMapping("/api/content")
+@CrossOrigin(origins = "*")
 @RequiredArgsConstructor
 public class ContentGenerationController {
-
+    
     private final ContentGenerationService contentGenerationService;
-
-    // 分析内容
-    @PostMapping("/analyze")
-    public ResponseEntity<ContentAnalysis> analyzeContent(
-            @RequestParam String text,
-            @RequestParam(defaultValue = "cover") String imageType) {
-        ContentAnalysis analysis = contentGenerationService.analyzeContent(text, imageType);
-        return ResponseEntity.ok(analysis);
-    }
-
-    // 生成内容
+    private final TemplateService templateService;
+    
+    /**
+     * 生成内容
+     */
     @PostMapping("/generate")
-    public ResponseEntity<String> generateContent(
-            @RequestParam String providerType,
-            @RequestParam String apiKey,
-            @RequestParam String prompt,
-            @RequestBody(required = false) Map<String, Object> params) {
+    public ResponseEntity<Map<String, Object>> generateContent(@Valid @RequestBody ContentGenerationRequest request) {
+        log.info("收到内容生成请求: {}", request.getInputText());
+        
         try {
-            if (params == null) {
-                params = Map.of();
+            ContentGenerationResponse response = contentGenerationService.generateContent(request);
+            
+            return ResponseEntity.ok(Map.of(
+                "success", response.getSuccess(),
+                "message", response.getMessage(),
+                "data", response
+            ));
+            
+        } catch (Exception e) {
+            log.error("内容生成失败", e);
+            return ResponseEntity.ok(Map.of(
+                "success", false,
+                "message", "生成失败: " + e.getMessage()
+            ));
+        }
+    }
+    
+    /**
+     * 获取所有封面模板
+     */
+    @GetMapping("/templates/cover")
+    public ResponseEntity<Map<String, Object>> getCoverTemplates() {
+        try {
+            List<CoverTemplateDTO> templates = templateService.getAllCoverTemplates();
+            
+            return ResponseEntity.ok(Map.of(
+                "success", true,
+                "data", templates
+            ));
+            
+        } catch (Exception e) {
+            log.error("获取封面模板失败", e);
+            return ResponseEntity.ok(Map.of(
+                "success", false,
+                "message", "获取模板失败: " + e.getMessage()
+            ));
+        }
+    }
+    
+    /**
+     * 根据ID获取模板
+     */
+    @GetMapping("/templates/cover/{templateId}")
+    public ResponseEntity<Map<String, Object>> getTemplateById(@PathVariable String templateId) {
+        try {
+            CoverTemplateDTO template = templateService.getTemplateById(templateId);
+            
+            if (template == null) {
+                return ResponseEntity.ok(Map.of(
+                    "success", false,
+                    "message", "模板不存在"
+                ));
             }
-            String result = contentGenerationService.generateContent(providerType, apiKey, prompt, params);
-            return ResponseEntity.ok(result);
+            
+            return ResponseEntity.ok(Map.of(
+                "success", true,
+                "data", template
+            ));
+            
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body("内容生成失败: " + e.getMessage());
-        }
-    }
-
-    // 生成小红书文案
-    @PostMapping("/xiaohongshu/generate")
-    public ResponseEntity<String> generateXiaohongshuContent(
-            @RequestParam String providerType,
-            @RequestParam String apiKey,
-            @RequestBody Map<String, Object> requestBody) {
-        try {
-            // 从请求体中提取参数
-            String originalText = (String) requestBody.get("originalText");
-            String imageType = (String) requestBody.getOrDefault("imageType", "cover");
-            
-            // 先分析内容
-            ContentAnalysis analysis = contentGenerationService.analyzeContent(originalText, imageType);
-            
-            // 生成小红书文案
-            String result = contentGenerationService.generateXiaohongshuContent(providerType, apiKey, analysis, originalText);
-            return ResponseEntity.ok(result);
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body("小红书文案生成失败: " + e.getMessage());
-        }
-    }
-
-    // 生成标题
-    @PostMapping("/title/generate")
-    public ResponseEntity<String> generateTitle(
-            @RequestParam String providerType,
-            @RequestParam String apiKey,
-            @RequestParam String content) {
-        try {
-            String result = contentGenerationService.generateTitle(providerType, apiKey, content);
-            return ResponseEntity.ok(result);
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body("标题生成失败: " + e.getMessage());
-        }
-    }
-
-    // 分析并生成小红书文案（组合接口）
-    @PostMapping("/analyze-and-generate")
-    public ResponseEntity<Map<String, Object>> analyzeAndGenerate(
-            @RequestParam String providerType,
-            @RequestParam String apiKey,
-            @RequestParam String text,
-            @RequestParam(defaultValue = "cover") String imageType) {
-        try {
-            // 分析内容
-            ContentAnalysis analysis = contentGenerationService.analyzeContent(text, imageType);
-            
-            // 生成小红书文案
-            String generatedContent = contentGenerationService.generateXiaohongshuContent(providerType, apiKey, analysis, text);
-            
-            // 生成标题
-            String generatedTitle = contentGenerationService.generateTitle(providerType, apiKey, generatedContent);
-            
-            // 构建响应
-            Map<String, Object> response = Map.of(
-                    "analysis", analysis,
-                    "generatedContent", generatedContent,
-                    "generatedTitle", generatedTitle
-            );
-            
-            return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of("error", "分析和生成失败: " + e.getMessage()));
+            log.error("获取模板失败", e);
+            return ResponseEntity.ok(Map.of(
+                "success", false,
+                "message", "获取模板失败: " + e.getMessage()
+            ));
         }
     }
 }

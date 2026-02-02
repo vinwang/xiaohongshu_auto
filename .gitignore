@@ -103,6 +103,7 @@ $RECYCLE.BIN/
 application-local.properties
 application-dev.properties
 application-prod.properties
+application.properties
 .env
 .env.local
 .env.*.local
@@ -195,3 +196,5 @@ secrets/
 *.pfx
 credentials.json
 service-account.json
+
+xhs_data/

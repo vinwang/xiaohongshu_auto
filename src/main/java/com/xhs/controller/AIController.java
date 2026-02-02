@@ -1,15 +1,23 @@
 package com.xhs.controller;
 
+import com.xhs.dto.SaveAIConfigRequest;
+import com.xhs.dto.TestConnectionRequest;
+import com.xhs.dto.TestImageConnectionRequest;
 import com.xhs.service.AIService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.BindingResult;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @RestController
 @RequestMapping("/api/ai")
 @RequiredArgsConstructor
+@Slf4j
 public class AIController {
 
     private final AIService aiService;
@@ -28,20 +36,33 @@ public class AIController {
             String result = aiService.generateContent(providerType, apiKey, prompt, params);
             return ResponseEntity.ok(result);
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body("AI生成内容失败: " + e.getMessage());
+            log.error("AI生成内容失败: {}", e.getMessage(), e);
+            return ResponseEntity.badRequest().body("AI生成内容失败");
         }
     }
 
     // 测试AI连接
     @PostMapping("/test-connection")
-    public ResponseEntity<Map<String, Object>> testAIConnection(@RequestBody Map<String, String> request) {
+    public ResponseEntity<Map<String, Object>> testAIConnection(
+            @Valid @RequestBody TestConnectionRequest request,
+            BindingResult bindingResult) {
+        if (bindingResult.hasErrors()) {
+            String errors = bindingResult.getAllErrors().stream()
+                    .map(error -> error.getDefaultMessage())
+                    .collect(Collectors.joining(", "));
+            return ResponseEntity.badRequest().body(Map.of("success", false, "error", errors));
+        }
+
         try {
-            String providerType = request.get("providerType");
-            String apiKey = request.get("apiKey");
-            boolean isConnected = aiService.testAIConnection(providerType, apiKey);
+            boolean isConnected = aiService.testAIConnection(
+                    request.getProviderType(),
+                    request.getApiKey(),
+                    request.getModelName()
+            );
             return ResponseEntity.ok(Map.of("success", isConnected));
         } catch (Exception e) {
-            return ResponseEntity.ok(Map.of("success", false, "error", e.getMessage()));
+            log.error("测试AI连接失败: {}", e.getMessage(), e);
+            return ResponseEntity.ok(Map.of("success", false, "error", "连接测试失败"));
         }
     }
 
@@ -52,7 +73,33 @@ public class AIController {
             var providers = aiService.getSupportedProviders();
             return ResponseEntity.ok(Map.of("providers", providers));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of("error", "获取AI提供商列表失败: " + e.getMessage()));
+            log.error("获取AI提供商列表失败: {}", e.getMessage(), e);
+            return ResponseEntity.badRequest().body(Map.of("error", "获取AI提供商列表失败"));
+        }
+    }
+
+    // 测试生图连接
+    @PostMapping("/test-image-connection")
+    public ResponseEntity<Map<String, Object>> testImageConnection(
+            @Valid @RequestBody TestImageConnectionRequest request,
+            BindingResult bindingResult) {
+        if (bindingResult.hasErrors()) {
+            String errors = bindingResult.getAllErrors().stream()
+                    .map(error -> error.getDefaultMessage())
+                    .collect(Collectors.joining(", "));
+            return ResponseEntity.badRequest().body(Map.of("success", false, "error", errors));
+        }
+
+        try {
+            boolean isConnected = aiService.testImageConnection(
+                    request.getProvider(),
+                    request.getApiKey(),
+                    request.getModelName()
+            );
+            return ResponseEntity.ok(Map.of("success", isConnected));
+        } catch (Exception e) {
+            log.error("测试生图连接失败: {}", e.getMessage(), e);
+            return ResponseEntity.ok(Map.of("success", false, "error", "连接测试失败"));
         }
     }
 }

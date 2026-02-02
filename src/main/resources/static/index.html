@@ -345,6 +345,57 @@
             box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
         }
 
+        /* Tab样式 */
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 24px;
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: 0;
+        }
+
+        .tab-btn {
+            padding: 12px 24px;
+            background: transparent;
+            border: none;
+            border-bottom: 2px solid transparent;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: -2px;
+        }
+
+        .tab-btn:hover {
+            color: var(--text-primary);
+        }
+
+        .tab-btn.active {
+            color: var(--primary-color);
+            border-bottom-color: var(--primary-color);
+        }
+
+        .tab-content {
+            display: none;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
         /* 表格样式 */
         .table-container {
             overflow-x: auto;
@@ -706,10 +757,6 @@
                     <div class="nav-icon">🌐</div>
                     <span>浏览器环境</span>
                 </div>
-                <div class="nav-item" data-page="backend">
-                    <div class="nav-icon">🔧</div>
-                    <span>后端配置</span>
-                </div>
                 <div class="nav-item" data-page="cover">
                     <div class="nav-icon">🖼️</div>
                     <span>封面中心</span>
@@ -848,35 +895,6 @@
                 </div>
             </div>
 
-            <!-- 后端配置 -->
-            <div class="page" id="page-backend">
-                <div class="page-header">
-                    <h1 class="page-title">后端配置</h1>
-                    <p class="page-subtitle">配置AI模型和发布参数</p>
-                </div>
-                <div class="card">
-                    <div class="card-title">🤖 AI模型配置</div>
-                    <div class="form-group">
-                        <label class="form-label">AI提供商</label>
-                        <select class="form-input" id="ai-provider">
-                            <option value="kimi">Kimi (月之暗面)</option>
-                            <option value="qwen">Qwen (通义千问)</option>
-                            <option value="openai">OpenAI</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">API密钥</label>
-                        <input type="password" class="form-input" id="api-key" placeholder="请输入API密钥">
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">模型名称</label>
-                        <input type="text" class="form-input" id="model-name" placeholder="请输入模型名称">
-                    </div>
-                    <button class="btn btn-primary" onclick="testAIConnection()">测试连接</button>
-                    <button class="btn btn-success" onclick="saveBackendConfig()">保存配置</button>
-                </div>
-            </div>
-
             <!-- 封面中心 -->
             <div class="page" id="page-cover">
                 <div class="page-header">
@@ -900,7 +918,7 @@
                 <div class="card">
                     <div class="card-title">📊 热点数据</div>
                     <div style="margin-bottom: 16px;">
-                        <button class="btn btn-primary" onclick="loadHotData('weibo')">微博热搜</button>
+                        <button class="btn btn-secondary" onclick="loadHotData('weibo')">微博热搜</button>
                         <button class="btn btn-secondary" onclick="loadHotData('baidu')">百度热搜</button>
                         <button class="btn btn-secondary" onclick="loadHotData('toutiao')">头条热搜</button>
                         <button class="btn btn-secondary" onclick="loadHotData('bilibili')">B站热搜</button>
@@ -918,13 +936,10 @@
                     <p class="page-subtitle">实用工具集合</p>
                 </div>
                 <div class="card">
-                    <div class="card-title">🎬 视频去水印</div>
-                    <div class="form-group">
-                        <label class="form-label">视频URL</label>
-                        <input type="text" class="form-input" id="video-url" placeholder="请输入视频URL">
-                    </div>
-                    <button class="btn btn-primary" onclick="removeWatermark()">去水印</button>
-                    <div id="watermark-result" style="margin-top: 16px; display: none;"></div>
+                    <div class="card-title">📋 即将上线</div>
+                    <p style="color: var(--text-secondary); text-align: center; padding: 40px 0;">
+                        更多实用工具正在开发中,敬请期待...
+                    </p>
                 </div>
             </div>
 
@@ -934,7 +949,131 @@
                     <h1 class="page-title">设置</h1>
                     <p class="page-subtitle">系统设置</p>
                 </div>
+                
+                <!-- AI模型配置 -->
                 <div class="card">
+                    <div class="card-title">🤖 AI模型配置</div>
+                    
+                    <!-- Tab切换 -->
+                    <div class="tabs">
+                        <button class="tab-btn active" data-tab="kimi" onclick="switchTab('kimi')">🌙 Kimi</button>
+                        <button class="tab-btn" data-tab="qwen" onclick="switchTab('qwen')">🔮 Qwen</button>
+                        <button class="tab-btn" data-tab="openai" onclick="switchTab('openai')">🤖 OpenAI</button>
+                        <button class="tab-btn" data-tab="volcengine" onclick="switchTab('volcengine')">🌋 火山引擎</button>
+                        <button class="tab-btn" data-tab="image" onclick="switchTab('image')">🎨 生图模型</button>
+                    </div>
+                    
+                    <!-- Kimi配置 -->
+                    <div class="tab-content active" id="tab-kimi">
+                        <div class="form-group">
+                            <label class="form-label">API密钥</label>
+                            <input type="password" class="form-input" id="kimi-api-key" placeholder="请输入Kimi API密钥">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">模型名称</label>
+                            <input type="text" class="form-input" id="kimi-model-name" placeholder="默认: moonshot-v1-8k">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">端点地址(Endpoint)</label>
+                            <input type="text" class="form-input" id="kimi-endpoint" placeholder="默认: https://api.moonshot.cn/v1 (自定义可选)">
+                        </div>
+                        <div style="display: flex; gap: 12px;">
+                            <button class="btn btn-primary" onclick="testAIConnection('kimi')">测试连接</button>
+                            <button class="btn btn-success" onclick="saveAIConfig('kimi')">保存配置</button>
+                        </div>
+                    </div>
+                    
+                    <!-- Qwen配置 -->
+                    <div class="tab-content" id="tab-qwen">
+                        <div class="form-group">
+                            <label class="form-label">API密钥</label>
+                            <input type="password" class="form-input" id="qwen-api-key" placeholder="请输入Qwen API密钥">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">模型名称</label>
+                            <input type="text" class="form-input" id="qwen-model-name" placeholder="默认: qwen-turbo">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">端点地址(Endpoint)</label>
+                            <input type="text" class="form-input" id="qwen-endpoint" placeholder="默认: https://dashscope.aliyuncs.com/api/v1 (自定义可选)">
+                        </div>
+                        <div style="display: flex; gap: 12px;">
+                            <button class="btn btn-primary" onclick="testAIConnection('qwen')">测试连接</button>
+                            <button class="btn btn-success" onclick="saveAIConfig('qwen')">保存配置</button>
+                        </div>
+                    </div>
+                    
+                    <!-- OpenAI配置 -->
+                    <div class="tab-content" id="tab-openai">
+                        <div class="form-group">
+                            <label class="form-label">API密钥</label>
+                            <input type="password" class="form-input" id="openai-api-key" placeholder="请输入OpenAI API密钥">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">模型名称</label>
+                            <input type="text" class="form-input" id="openai-model-name" placeholder="默认: gpt-3.5-turbo">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">端点地址(Endpoint)</label>
+                            <input type="text" class="form-input" id="openai-endpoint" placeholder="默认: https://api.openai.com/v1 (自定义可选)">
+                        </div>
+                        <div style="display: flex; gap: 12px;">
+                            <button class="btn btn-primary" onclick="testAIConnection('openai')">测试连接</button>
+                            <button class="btn btn-success" onclick="saveAIConfig('openai')">保存配置</button>
+                        </div>
+                    </div>
+                    
+                    <!-- 火山引擎配置 -->
+                    <div class="tab-content" id="tab-volcengine">
+                        <div class="form-group">
+                            <label class="form-label">API密钥</label>
+                            <input type="password" class="form-input" id="volcengine-api-key" placeholder="请输入火山引擎API密钥">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">模型名称</label>
+                            <input type="text" class="form-input" id="volcengine-model-name" placeholder="默认: doubao-pro-4k">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">端点地址(Endpoint)</label>
+                            <input type="text" class="form-input" id="volcengine-endpoint" placeholder="默认: https://ark.cn-beijing.volces.com/api/v3 (自定义可选)">
+                        </div>
+                        <div style="display: flex; gap: 12px;">
+                            <button class="btn btn-primary" onclick="testAIConnection('volcengine')">测试连接</button>
+                            <button class="btn btn-success" onclick="saveAIConfig('volcengine')">保存配置</button>
+                        </div>
+                    </div>
+                    
+                    <!-- 生图配置 -->
+                    <div class="tab-content" id="tab-image">
+                        <div class="form-group">
+                            <label class="form-label">生图平台</label>
+                            <select class="form-input" id="image-provider" onchange="updateImageProvider()">
+                                <option value="openai">OpenAI (DALL-E)</option>
+                                <option value="volcengine">火山引擎 (豆包绘图)</option>
+                                <option value="qwen">通义千问 (通义万相)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">API密钥</label>
+                            <input type="password" class="form-input" id="image-api-key" placeholder="请输入生图API密钥">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">模型名称</label>
+                            <input type="text" class="form-input" id="image-model-name" placeholder="默认: dall-e-3">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">端点地址(Endpoint)</label>
+                            <input type="text" class="form-input" id="image-endpoint" placeholder="默认: https://api.openai.com/v1 (自定义可选)">
+                        </div>
+                        <div style="display: flex; gap: 12px;">
+                            <button class="btn btn-primary" onclick="testImageConnection()">测试连接</button>
+                            <button class="btn btn-success" onclick="saveImageConfig()">保存配置</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 版本信息 -->
+                <div class="card" style="margin-top: 24px;">
                     <div class="card-title">📋 版本信息</div>
                     <p style="color: var(--text-secondary);">
                         小红书AI发布助手 v1.0.0<br>
@@ -995,6 +1134,12 @@
                     break;
                 case 'browser':
                     loadBrowserEnvironments();
+                    break;
+                case 'backend':
+                    loadBackendConfig();
+                    break;
+                case 'settings':
+                    loadBackendConfig();
                     break;
                 case 'cover':
                     loadCoverTemplates();
@@ -1090,7 +1235,6 @@
 
         // 生成内容
         async function generateContent() {
-            const type = document.getElementById('generate-type').value;
             const prompt = document.getElementById('generate-prompt').value;
             
             if (!prompt.trim()) {
@@ -1106,20 +1250,31 @@
             btn.disabled = true;
             
             try {
-                const response = await fetch('/api/frontend/home/generate', {
+                const response = await fetch('/api/content/generate', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ type, prompt, userId: 1 })
+                    body: JSON.stringify({ 
+                        inputText: prompt,
+                        headerTitle: '小红书笔记',
+                        author: 'AI助手'
+                    })
                 });
                 
                 const result = await response.json();
                 
                 if (result.success) {
-                    document.getElementById('generate-output').value = result.content;
+                    const data = result.data;
+                    document.getElementById('generate-output').value = `标题: ${data.title}\n\n内容:\n${data.content}`;
                     document.getElementById('generate-result').style.display = 'block';
-                    showToast('生成成功！', 'success');
+                    
+                    // 显示信息提示
+                    if (data.infoReason) {
+                        showToast(data.infoReason, 'info');
+                    } else {
+                        showToast('生成成功！', 'success');
+                    }
                 } else {
-                    showToast('生成失败: ' + (result.error || '未知错误'), 'error');
+                    showToast('生成失败: ' + (result.message || '未知错误'), 'error');
                 }
             } catch (error) {
                 console.error('生成内容失败:', error);
@@ -1130,10 +1285,82 @@
             }
         }
 
+        // 加载后端配置
+        async function loadBackendConfig() {
+            try {
+                const response = await fetch('/api/config/ai/config');
+                const configs = await response.json();
+
+                // 加载每个模型的配置
+                if (configs.kimi) {
+                    if (configs.kimi.apiKey) {
+                        document.getElementById('kimi-api-key').value = configs.kimi.apiKey;
+                    }
+                    if (configs.kimi.modelName) {
+                        document.getElementById('kimi-model-name').value = configs.kimi.modelName;
+                    }
+                    if (configs.kimi.endpoint) {
+                        document.getElementById('kimi-endpoint').value = configs.kimi.endpoint;
+                    }
+                }
+                if (configs.qwen) {
+                    if (configs.qwen.apiKey) {
+                        document.getElementById('qwen-api-key').value = configs.qwen.apiKey;
+                    }
+                    if (configs.qwen.modelName) {
+                        document.getElementById('qwen-model-name').value = configs.qwen.modelName;
+                    }
+                    if (configs.qwen.endpoint) {
+                        document.getElementById('qwen-endpoint').value = configs.qwen.endpoint;
+                    }
+                }
+                if (configs.openai) {
+                    if (configs.openai.apiKey) {
+                        document.getElementById('openai-api-key').value = configs.openai.apiKey;
+                    }
+                    if (configs.openai.modelName) {
+                        document.getElementById('openai-model-name').value = configs.openai.modelName;
+                    }
+                    if (configs.openai.endpoint) {
+                        document.getElementById('openai-endpoint').value = configs.openai.endpoint;
+                    }
+                }
+                if (configs.volcengine) {
+                    if (configs.volcengine.apiKey) {
+                        document.getElementById('volcengine-api-key').value = configs.volcengine.apiKey;
+                    }
+                    if (configs.volcengine.modelName) {
+                        document.getElementById('volcengine-model-name').value = configs.volcengine.modelName;
+                    }
+                    if (configs.volcengine.endpoint) {
+                        document.getElementById('volcengine-endpoint').value = configs.volcengine.endpoint;
+                    }
+                }
+                if (configs.image) {
+                    if (configs.image.provider) {
+                        document.getElementById('image-provider').value = configs.image.provider;
+                    }
+                    if (configs.image.apiKey) {
+                        document.getElementById('image-api-key').value = configs.image.apiKey;
+                    }
+                    if (configs.image.model) {
+                        document.getElementById('image-model-name').value = configs.image.model;
+                    }
+                    if (configs.image.endpoint) {
+                        document.getElementById('image-endpoint').value = configs.image.endpoint;
+                    }
+                    // 更新默认值
+                    updateImageProvider();
+                }
+            } catch (error) {
+                console.error('加载配置失败:', error);
+            }
+        }
+
         // 测试AI连接
-        async function testAIConnection() {
-            const provider = document.getElementById('ai-provider').value;
-            const apiKey = document.getElementById('api-key').value;
+        async function testAIConnection(provider) {
+            const apiKey = document.getElementById(`${provider}-api-key`).value;
+            const modelName = document.getElementById(`${provider}-model-name`).value;
             
             if (!apiKey.trim()) {
                 showToast('请输入API密钥', 'warning');
@@ -1144,7 +1371,7 @@
                 const response = await fetch('/api/ai/test-connection', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ providerType: provider, apiKey })
+                    body: JSON.stringify({ providerType: provider, apiKey, modelName })
                 });
                 
                 const result = await response.json();
@@ -1160,10 +1387,141 @@
             }
         }
 
-        // 保存后端配置
-        function saveBackendConfig() {
-            showToast('配置已保存', 'success');
+        // 保存AI配置
+        async function saveAIConfig(provider) {
+            const apiKey = document.getElementById(`${provider}-api-key`).value;
+            const modelName = document.getElementById(`${provider}-model-name`).value;
+            const endpoint = document.getElementById(`${provider}-endpoint`).value;
+            
+            if (!apiKey.trim()) {
+                showToast('请输入API密钥', 'warning');
+                return;
+            }
+            
+            const requestBody = {
+                provider: provider,
+                apiKey: apiKey,
+                modelName: modelName,
+                endpoint: endpoint
+            };
+            
+            try {
+                const response = await fetch('/api/config/ai/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showToast('配置已保存', 'success');
+                } else {
+                    showToast('保存失败: ' + (result.message || '未知错误'), 'error');
+                }
+            } catch (error) {
+                console.error('保存配置失败:', error);
+                showToast('保存失败: ' + error.message, 'error');
+            }
         }
+
+        // 保存生图配置
+        async function saveImageConfig() {
+            const provider = document.getElementById('image-provider').value;
+            const apiKey = document.getElementById('image-api-key').value;
+            const modelName = document.getElementById('image-model-name').value;
+            const endpoint = document.getElementById('image-endpoint').value;
+            
+            if (!apiKey.trim()) {
+                showToast('请输入API密钥', 'warning');
+                return;
+            }
+            
+            const requestBody = {
+                provider: provider,
+                apiKey: apiKey,
+                model: modelName,
+                endpoint: endpoint
+            };
+            
+            try {
+                const response = await fetch('/api/config/ai/image-config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showToast('配置已保存', 'success');
+                } else {
+                    showToast('保存失败: ' + (result.message || '未知错误'), 'error');
+                }
+            } catch (error) {
+                console.error('保存配置失败:', error);
+                showToast('保存失败: ' + error.message, 'error');
+            }
+        }
+
+        // 更新生图平台默认值
+        function updateImageProvider() {
+            const provider = document.getElementById('image-provider').value;
+            const modelNameInput = document.getElementById('image-model-name');
+            const endpointInput = document.getElementById('image-endpoint');
+            
+            const defaults = {
+                openai: {
+                    model: 'dall-e-3',
+                    endpoint: 'https://api.openai.com/v1'
+                },
+                volcengine: {
+                    model: 'doubao-image-pro',
+                    endpoint: 'https://ark.cn-beijing.volces.com/api/v3'
+                },
+                qwen: {
+                    model: 'wanx-v1',
+                    endpoint: 'https://dashscope.aliyuncs.com/api/v1'
+                }
+            };
+            
+            const config = defaults[provider] || defaults.openai;
+            modelNameInput.placeholder = '默认: ' + config.model;
+            endpointInput.placeholder = '默认: ' + config.endpoint + ' (自定义可选)';
+        }
+
+        // 测试生图连接
+        async function testImageConnection() {
+            const provider = document.getElementById('image-provider').value;
+            const apiKey = document.getElementById('image-api-key').value;
+            const modelName = document.getElementById('image-model-name').value;
+            
+            if (!apiKey.trim()) {
+                showToast('请输入API密钥', 'warning');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/ai/test-image-connection', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ provider, apiKey, modelName })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showToast('连接成功！', 'success');
+                } else {
+                    showToast('连接失败: ' + (result.error || '未知错误'), 'error');
+                }
+            } catch (error) {
+                console.error('测试连接失败:', error);
+                showToast('连接失败: ' + error.message, 'error');
+            }
+        }
+
+        
 
         // 加载封面模板
         async function loadCoverTemplates() {
@@ -1223,18 +1581,18 @@
                 html += '<div style="display: flex; flex-direction: column; gap: 12px;">';
                 
                 result.data.forEach((item, index) => {
-                    const rankColor = index < 3 ? 'var(--primary-color)' : 'var(--text-secondary)';
-                    const trendIcon = item.trend === '上升' ? '📈' : item.trend === '下降' ? '📉' : '➡️';
-                    const trendColor = item.trend === '上升' ? 'var(--success-color)' : item.trend === '下降' ? 'var(--danger-color)' : 'var(--text-secondary)';
+                    const rank = item.rank || index + 1;
+                    const rankColor = rank <= 3 ? 'var(--primary-color)' : 'var(--text-secondary)';
+                    const hotText = item.hot ? item.hot.toLocaleString() : 'N/A';
                     
                     html += `
                         <div style="display: flex; align-items: center; gap: 16px; padding: 12px; background: var(--card-bg); border-radius: 10px; border: 1px solid var(--border-color);">
-                            <div style="width: 32px; height: 32px; border-radius: 8px; background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(139, 92, 246, 0.2)); display: flex; align-items: center; justify-content: center; font-weight: 600; color: ${rankColor};">${item.rank}</div>
+                            <div style="width: 32px; height: 32px; border-radius: 8px; background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(139, 92, 246, 0.2)); display: flex; align-items: center; justify-content: center; font-weight: 600; color: ${rankColor};">${rank}</div>
                             <div style="flex: 1;">
                                 <div style="color: var(--text-primary); font-weight: 500;">${item.title}</div>
-                                <div style="color: var(--text-secondary); font-size: 12px; margin-top: 4px;">热度: ${item.heat.toLocaleString()}</div>
+                                <div style="color: var(--text-secondary); font-size: 12px; margin-top: 4px;">热度: ${hotText}</div>
                             </div>
-                            <div style="font-size: 18px; color: ${trendColor};">${trendIcon}</div>
+                            <div style="font-size: 18px; color: var(--text-secondary);">🔥</div>
                         </div>
                     `;
                 });
@@ -1247,66 +1605,7 @@
             }
         }
 
-        // 去水印
-        async function removeWatermark() {
-            const url = document.getElementById('video-url').value;
-            
-            if (!url.trim()) {
-                showToast('请输入视频URL', 'warning');
-                return;
-            }
-            
-            const btn = document.querySelector('#page-tools .btn-primary');
-            const originalText = btn.textContent;
-            btn.textContent = '处理中...';
-            btn.disabled = true;
-            
-            try {
-                const response = await fetch('/api/video/remove-watermark', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url })
-                });
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    const data = result.data;
-                    const resultDiv = document.getElementById('watermark-result');
-                    resultDiv.style.display = 'block';
-                    resultDiv.innerHTML = `
-                        <div style="margin-top: 16px; padding: 16px; background: var(--card-bg); border-radius: 10px; border: 1px solid var(--border-color);">
-                            <h4 style="margin-bottom: 12px; color: var(--text-primary);">📹 视频信息</h4>
-                            <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 16px;">
-                                <div>
-                                    <img src="${data.coverUrl}" alt="封面" style="width: 100%; border-radius: 8px;">
-                                </div>
-                                <div>
-                                    <div style="margin-bottom: 8px;"><strong style="color: var(--text-primary);">标题:</strong> <span style="color: var(--text-secondary);">${data.title}</span></div>
-                                    <div style="margin-bottom: 8px;"><strong style="color: var(--text-primary);">作者:</strong> <span style="color: var(--text-secondary);">${data.author}</span></div>
-                                    <div style="margin-bottom: 8px;"><strong style="color: var(--text-primary);">描述:</strong> <span style="color: var(--text-secondary);">${data.description}</span></div>
-                                    <div style="margin-bottom: 8px;"><strong style="color: var(--text-primary);">播放量:</strong> <span style="color: var(--text-secondary);">${data.views.toLocaleString()}</span></div>
-                                    <div style="margin-bottom: 8px;"><strong style="color: var(--text-primary);">点赞:</strong> <span style="color: var(--text-secondary);">${data.likes.toLocaleString()}</span></div>
-                                    <div style="margin-bottom: 8px;"><strong style="color: var(--text-primary);">评论:</strong> <span style="color: var(--text-secondary);">${data.comments.toLocaleString()}</span></div>
-                                    <div style="margin-top: 12px;">
-                                        <a href="${data.videoUrl}" target="_blank" class="btn btn-primary" style="text-decoration: none; display: inline-block;">查看原视频</a>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                    showToast('去水印成功！', 'success');
-                } else {
-                    showToast('去水印失败: ' + (result.message || '未知错误'), 'error');
-                }
-            } catch (error) {
-                console.error('去水印失败:', error);
-                showToast('去水印失败: ' + error.message, 'error');
-            } finally {
-                btn.textContent = originalText;
-                btn.disabled = false;
-            }
-        }
+        
 
         // 显示添加用户模态框
         function showAddUserModal() {
@@ -1525,6 +1824,25 @@
         }
 
         // 显示Toast通知
+        // 切换Tab
+        function switchTab(tabName) {
+            // 移除所有tab-btn的active类
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            // 隐藏所有tab-content
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            
+            // 激活当前tab-btn
+            document.querySelector(`.tab-btn[data-tab="${tabName}"]`).classList.add('active');
+            
+            // 显示当前tab-content
+            document.getElementById(`tab-${tabName}`).classList.add('active');
+        }
+
         function showToast(message, type = 'success') {
             const container = document.getElementById('toast-container');
             const toast = document.createElement('div');
